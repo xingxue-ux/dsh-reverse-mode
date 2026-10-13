@@ -20,6 +20,7 @@ Agent preset 是**每个会话独立的 Cordis 插件树**：预设里挂载的�
 | 模式提示 | 只有一条启动日志 | 额外的 scoped `systemPrompt` 段（`lib/guidance.js`）：模式说明、目标路由、证据纪律、许可与执行边界 |
 | 运行时依赖 | `@modelcontextprotocol/sdk`、`@deepseek-ai/schemastery` | **无**：内置极简 MCP stdio 客户端（`lib/mcp-stdio.js`），配置校验改为本地实现 |
 | 工具目录 | `lib/catalog.js` | 逐字复制，未改动 |
+| 环境自检 | 无 | `lib/environment.js` + `scripts/doctor.mjs`：连接后调用 REA 的 `doctor`，只读地报告引擎现状，缺失时在日志与模式提示里给出安装指引 |
 | 桥接逻辑 | — | 命名空间、注册、渲染、层级过滤、版本固定、超时、非致命启动失败策略均保持一致 |
 
 之所以去掉依赖：profile 插件用 `dsh plugin add link:<dir>` 安装时是**符号链接**。Node 的 ESM 解析会跟随到真实路径，于是裸模块名会从本包所在目录而不是 profile 的 `node_modules` 解析——而启动器提供的 `~/.dsh/profiles/node_modules` 并不是工作区的祖先目录。内置实现让本包零依赖、可就地编辑。
@@ -29,13 +30,42 @@ Agent preset 是**每个会话独立的 Cordis 插件树**：预设里挂载的�
 把本仓库链接进 profile（把路径换成你的实际仓库目录）：
 
 ```bash
-git clone https://github.com/staralsnow/dsh-reverse-mode.git
+git clone https://github.com/xingxue-ux/dsh-reverse-mode.git
 dsh plugin --profile web add 'link:/absolute/path/to/dsh-reverse-mode'
 ```
 
 插件管理器会把声明了 `dsh.bundle` 的包自动选中为 profile bundle，其 `presets/reverse.patch.yml` 随即在启动时 `insert` 出 `preset-reverse-engineering` 声明。也可以在 Web 侧边栏的 **Plugins** 页里安装同一个本地路径。
 
 安装后：重启或等 HMR 重载 → **新建**会话 → 在预设选择里选「逆向模式」。
+
+### 安装后自检（环境与逆向工具）
+
+DSH bundle 没有安装钩子，所以本包提供一条只读的自检命令，安装完（或换机器后）跑一次：
+
+```bash
+npm run doctor                   # 中文报告
+node scripts/doctor.mjs --json   # 机器可读
+node scripts/doctor.mjs --local  # 不启动子进程，离线最快
+```
+
+它先调用 REA 自带的 `rea doctor`（权威、与 `version` 绑定），失败时退回本地快速探测（只读环境变量与常见安装路径），并标明结论来自哪一侧。报告分两部分：
+
+- **必需**：Node 版本、REA 能否经 `npx` 拉起；归档 / 安装包 / JavaScript / Electron / 托管程序集分析**不需要**分析引擎。
+- **原生二进制深挖（可选引擎）**：Hopper / Ghidra / IDA 的现状、解锁的能力与安装指引。
+
+缺失引擎不会让模式不可用，只影响原生二进制的伪代码、反编译与交叉引用；把引擎接进来只需在 `rea-bridge` 行加 `env`（改完重载即生效，无需重启）：
+
+```yaml
+- id: rea-bridge
+  name: dsh-reverse-mode
+  config:
+    env:
+      GHIDRA_INSTALL_DIR: /opt/ghidra_12.1.1_PUBLIC      # Ghidra 12.1.x，需要 JDK 21
+      # HOPPER_LAUNCHER_PATH: /Applications/Hopper Disassembler.app/Contents/MacOS/hopper
+      # REA_IDA_MCP_CONFIG: /path/to/ida-mcp-registration.json
+```
+
+引擎由使用者自备并自行授权（Ghidra 免费；Hopper / IDA Pro 需商业授权）。本包**不安装、不升级**任何引擎，`npm run doctor` 也只读取环境。除手动运行外，插件会在 REA 连接成功后自动做一次同样的检查：缺失时在宿主日志写下 `dsh-rea: environment check: no native analysis engine found …`，并把「无原生引擎、如何启用」并入模式系统提示；已就绪时只记一条 info，提示段**不加**环境说明（避免无谓的 token）。
 
 ## 配置
 
@@ -51,13 +81,17 @@ dsh plugin --profile web add 'link:/absolute/path/to/dsh-reverse-mode'
 | `toolCallTimeoutMs` | `300000` | 单次工具调用超时；原生分析可能很慢 |
 | `startupTimeoutMs` | `120000` | 首次 `npx` 下载 + `initialize` 握手 + `tools/list` 的预算 |
 | `guidance` | `true` | 是否注册「逆向模式」系统提示段 |
+| `checkEnvironment` | `true` | REA 连接成功后做一次环境自检（复用 REA 的 `doctor`），结果写日志并（无引擎时）并入模式提示；只读、非致命 |
+| `environmentCheckTimeoutMs` | `60000` | 单次环境自检的预算；超时只影响这条报告 |
 | `failOnStartupError` | `false` | `true` 时 REA 起不来会拒绝激活该预设挂载；默认降级为「没有 REA 工具」 |
 
 ## 验证
 
 1. 新建「逆向模式」会话，问一句「你现在能调用哪些 rea__ 工具」，或直接让它 `rea__open_binary` 一个二进制；
-2. 该会话的宿主日志应出现 `dsh-rea: registered N/M REA tools (...)`；
-3. 新建一个 `standard` 会话，确认工具表里**没有**任何 `rea__` 前缀的工具。
+2. 该会话的宿主日志应出现 `dsh-rea: registered N/M REA tools (...)`，随后出现
+   `dsh-rea: environment check: …`（无引擎时是 warn，就绪时是 info）；
+3. 新建一个 `standard` 会话，确认工具表里**没有**任何 `rea__` 前缀的工具；
+4. 想单独确认环境：`npm run doctor`（安装后自检，见上；`--strict` 可在无引擎时返回 1）。
 
 ### 事后核查（直接读会话日志）
 

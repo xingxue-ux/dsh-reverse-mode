@@ -8,9 +8,12 @@ that contributed is listed here.
 
 1. **REA — Reverse Engineer Anything** — <https://github.com/morluto/rea>, MIT.
    **Not bundled.** This project launches the published npm package at runtime:
-   `npx -y rea-agents@<version> mcp`. REA's own dependencies, licenses and
-   analysis-engine requirements (Hopper, Ghidra, IDA Pro, JADX, Binwalk, …)
-   apply to whoever runs it.
+   `npx -y rea-agents@<version> mcp`, and reads the JSON report of
+   `npx -y rea-agents@<version> doctor` for its optional engine self-check (only
+   the environment facts it reports — engine presence and remediation strings —
+   are consumed). REA's own dependencies, licenses and analysis-engine
+   requirements (Hopper, Ghidra, IDA Pro, JADX, Binwalk, …) apply to whoever runs
+   it; this project installs none of them.
 
 2. **dsh-rea** — <https://github.com/JeremyWangCY/dsh-rea>, MIT,
    Copyright (c) 2026 dsh-rea contributors.
@@ -32,8 +35,9 @@ that contributed is listed here.
 ## This fork's own code
 
 `lib/index.js` (fork modifications), `lib/guidance.js`, `lib/mcp-stdio.js`,
-`presets/reverse.patch.yml`, `test/**`, `README.md`, `HANDOFF.md`,
-`CHANGELOG.md`, CI configuration — MIT, see [LICENSE](LICENSE).
+`lib/environment.js`, `scripts/doctor.mjs`, `presets/reverse.patch.yml`,
+`test/**`, `README.md`, `HANDOFF.md`, `CHANGELOG.md`, CI configuration — MIT, see
+[LICENSE](LICENSE).
 
 ## Trademarks and separate products
 

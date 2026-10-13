@@ -3,6 +3,41 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-10-13
+
+安装后环境自检：把「原生深挖需要一个使用者自备的分析引擎」这件事在安装后立刻讲清楚。
+
+### Added
+
+- `lib/environment.js`：读取 REA 自带的 `rea doctor`（`--format json --filter-output`），把结果投影为
+  Hopper / Ghidra / IDA 三项判定与安装指引；`rea doctor` 不可用时退回零依赖的本地探测
+  （`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG` 与常见安装位置），并标明结论来源。
+  只读、非致命；引擎可选，缺失只是能力说明，不是错误。
+- `scripts/doctor.mjs`（`npm run doctor`）：中文报告，支持 `--json` / `--local` / `--strict` /
+  `--runner` / `--version` / `--timeout`；缺失引擎时打印可直接粘贴进 `presets/reverse.patch.yml` 的
+  `rea-bridge.config.env` 片段。
+- `lib/index.js`：新增配置 `checkEnvironment`（默认 `true`）与 `environmentCheckTimeoutMs`（默认 `60000`）。
+  REA 连接成功后做一次自检：无引擎写 `dsh-rea: environment check: no native analysis engine found …` 警告，
+  就绪则记 info；teardown 用 `AbortController` 取消仍在跑的探测。
+- `lib/guidance.js`：无可用引擎时把「环境自检」一段并入模式系统提示；已就绪时不加，避免无谓 token。
+- 测试：`test/environment.test.mjs`（离线 11 例：Node 版本范围、`doctor` 投影、本地探测、报告渲染、
+  CLI 端到端与 `--strict` 退出码）；`test/bridge.test.mjs` 增加两条 apply 级用例（警告与提示段、就绪时
+  只记 info 且不加提示段）。
+
+### Changed
+
+- 版本 `0.1.0` → `0.2.0`；`package.json` 增加 `doctor` 脚本，`scripts` 进入 `files`。
+- preset 行 `rea-bridge` 的注释补上三种引擎的 `env` 示例（行配置本身未变）。
+- MCP 握手的 `clientInfo.version` 改为读取 `package.json`，不再硬编码。
+- **未决项决定**：与上游 `dsh-rea` 保持一致 —— 本版不改变 `entry` / `navigate` / `analyze` 的替换语义
+  （`lib/catalog.js` 仍逐字复制），也不引入惰性启动、子进程池化或额外的 i18n / CI 变更。
+
+### Verified
+
+- `npm test` 全绿（bridge 8 例 + environment 11 例 + preset 4 例 + cordis-mount 2 例）。
+- 本机真机：`npm run doctor` 经 REA 自带 `doctor` 给出 `引擎就绪 0/3`，逐条列出 Hopper / Ghidra / IDA 的
+  安装指引；`--local` 在无子进程时同样给出结论并标注来源。
+
 ## [0.1.0] - 2026-10-13
 
 首个版本：把 REA 逆向工程能力做成**只属于「逆向模式」agent 预设**的桥接插件。

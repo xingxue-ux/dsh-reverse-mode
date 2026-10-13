@@ -4,7 +4,7 @@
 判断改动是否生效、在真机上验证、并决定后续路线。
 
 - 仓库：`dsh-reverse-mode`（开源，MIT，见 `NOTICE.md` 溯源）
-- 版本：`0.1.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 版本：`0.2.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 唯一的现实使用场景：**DeepSeek Harness（DSH）** 的 `web` profile，预设「逆向模式」
 
 ---
@@ -15,6 +15,10 @@
 `preset-reverse-engineering`（显示名「逆向模式」）**，该预设的子插件列表中挂了本项目
 自己的 REA 桥接插件（`lib/index.js`）。选择该预设的会话，会在常规工具箱之上多出 9 个
 `rea__*` 工具（默认 `entry` 层级）和一段「逆向模式」系统提示。
+
+安装后有两层**环境自检**（0.2.0 新增）：手动 `npm run doctor` 打印引擎现状与安装指引；
+插件在 REA 连接成功后会自动再查一次，缺失时写宿主日志并把提示并入模式系统提示。两者都
+只读、不安装任何东西。详见第 3、6 节。
 
 **不是什么**：
 
@@ -63,11 +67,14 @@
 | 文件 | 职责 | 改动前注意 |
 |---|---|---|
 | `presets/reverse.patch.yml` | `insert` 出 `@deepseek-ai/dsh-agent-preset` 声明：`id: reverse-engineering`、`name: 逆向模式`、`order: 5`、`plugins: [standard 全套… , rea-bridge]` | 子列表是快照，见机制 2；`rea-bridge` 行的 `config` 是唯一常规调参点 |
-| `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、REA 启动、目录筛选、`rea__*` 注册、结果渲染、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释 |
-| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(31) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游逐字复制**，改它等于偏离上游；见第 9 节"层级语义" |
-| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`） | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段 |
-| `lib/mcp-stdio.js` | 零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 为什么不用 `@modelcontextprotocol/sdk`：见第 4 节 |
-| `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + `npx` shim，覆盖配置校验、筛选、渲染、超时、取消、启动失败降级 | 改 `apply()` 行为后先让这里绿 |
+| `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、REA 启动、目录筛选、`rea__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`checkEnvironment` 自检挂在 `connect()` 成功之后，缺失引擎只 warn |
+| `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
+| `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
+| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(31) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游逐字复制**，改它等于偏离上游；见第 9 节"层级语义"（已决定保持替换语义） |
+| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第二参数是环境报告，仅无引擎时追加「环境自检」段 | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段 |
+| `lib/mcp-stdio.js` | 零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 为什么不用 `@modelcontextprotocol/sdk`：见第 4 节；`clientVersion` 由 `index.js` 从 `package.json` 注入 |
+| `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + 双模 `npx` shim（MCP / `doctor`），覆盖配置校验、筛选、渲染、超时、取消、启动失败降级、环境自检的日志与提示段 | 改 `apply()` 行为后先让这里绿；不需要自检的用例显式 `checkEnvironment: false` |
+| `test/environment.test.mjs` | 环境自检的离线用例：Node 版本范围、`doctor` 投影、本地探测、报告渲染、CLI 端到端与 `--strict` 退出码 | 全部离线：canned payload + 临时假环境 + shim，不需要网络或引擎 |
 | `test/cordis-mount.test.mjs` | **真实 cordis** 的激活顺序回归：先挂插件、后 provide 服务，断言此时才注册 | 这是"加载失败"那个 bug 的防线，勿删 |
 | `test/preset.test.mjs` | 结构守卫：预设行字段、子列表 = standard + 恰好 1 行、id 不重复、元数据指向存在的文件、零依赖 | 需要本机 DSH 安装；没有则自动 skip |
 | `test/live-rea.test.mjs` | 按需连**真 REA**：报告注册数量与 schema 体积 | 需要 npm registry；默认 skip（`DSH_REVERSE_MODE_LIVE=1`） |
@@ -109,14 +116,21 @@ profile boot
                  └─ spawn `npx -y rea-agents@6.4.0 mcp`（stdio，JSON-RPC 换行分帧）
                       ├─ initialize / notifications/initialized
                       ├─ tools/list（游标分页）→ 与 TIERS[tools] 求交集
-                      └─ ctx.tools.register(`rea__<name>`, { parameters, output.render, timeoutMs })
+                      ├─ ctx.tools.register(`rea__<name>`, { parameters, output.render, timeoutMs })
+                      └─ checkEnvironment()（默认开，非阻塞）
+                           └─ spawn `npx -y rea-agents@6.4.0 doctor --format json --filter-output …`
+                                ├─ 成功 → 投影为 Hopper/Ghidra/IDA 判定 → 写日志 + 供模式提示读取
+                                └─ 失败 → 本地零依赖探测（env 变量 + 常见路径），标注来源
 模型调用某一 rea__ 工具
   └─ execute() → client.callTool({name, arguments}, {signal, timeout})
        └─ REA 执行（静态 JS 分析无需引擎；原生深挖才需要 Hopper/Ghidra/IDA）
             └─ 结果原样回传（保留 evidence_id / limitations），isError 时抛错
 会话/预设卸载 或 HMR 重组
-  └─ ctx.effect 的 disposer → 注销全部 rea__ 工具 + client.close()（SIGTERM→3s→SIGKILL）
+  └─ ctx.effect 的 disposer → environmentProbe.abort() + 注销全部 rea__ 工具
+       + client.close()（SIGTERM→3s→SIGKILL）
 ```
+
+手动入口（与插件内自检同源）：`npm run doctor`，见第 7 节。
 
 ---
 
@@ -130,11 +144,19 @@ profile boot
 | `tools` | `'entry'` | `entry`(9 工具) / `navigate`(31) / `analyze`(17) / 显式名字数组 / `'all'` 或 `null`(170) |
 | `version` | `'6.4.0'` | 固定 `rea-agents` 版本；工具名与 schema 与之绑定 |
 | `runner` | `'npx'` | 启动 REA 的包运行器 |
-| `env` | `{}` | 追加给 REA 子进程的环境变量（如 `GHIDRA_INSTALL_DIR`、`REA_ANALYSIS_PROVIDER`） |
+| `env` | `{}` | 追加给 REA 子进程的环境变量（分析引擎就走这里：`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`，以及 `REA_ANALYSIS_PROVIDER` 等） |
 | `toolCallTimeoutMs` | `300000` | 单次工具调用超时 |
 | `startupTimeoutMs` | `120000` | `npx` 下载 + 握手 + `tools/list` 的总预算 |
 | `guidance` | `true` | 是否注册模式提示段 |
+| `checkEnvironment` | `true` | REA 连接成功后调用一次 REA 的 `doctor` 做只读环境自检；无引擎时写 warn 并把「环境自检」段并入模式提示，就绪时只记 info |
+| `environmentCheckTimeoutMs` | `60000` | 环境自检（含 `npx` 冷启动）的预算；超时只影响这条报告，不影响桥接 |
 | `failOnStartupError` | `false` | `true` 时 REA 起不来会拒绝激活该行；默认静默降级为"没有 REA 工具"（只在宿主日志留 error） |
+
+**分析引擎（可选，用户自备）**：Hopper / Ghidra / IDA 只影响原生二进制的伪代码、反编译与
+交叉引用；归档、安装包、JS/Electron、托管程序集分析不需要任何引擎。REA 读取的变量分别是
+`HOPPER_LAUNCHER_PATH`、`GHIDRA_INSTALL_DIR`（Ghidra 12.1.x + JDK 21）、`REA_IDA_MCP_CONFIG`
+（上游 IDA MCP 注册 JSON）。`npm run doctor` 会按缺失项生成可直接粘贴的 `env` 片段；本包
+从不安装或升级引擎。
 
 **成本量化**（实测，REA 6.4.0）：`entry` = **9/170 工具，~98 kB schema ≈ 2.7 万 token/次**。
 `all` ≈ 1.9 MB ≈ 54 万 token。因为工具 schema 会进入**每一次**模型请求，所以层级选择
@@ -146,10 +168,16 @@ profile boot
 ## 7. 开发与验证
 
 ```bash
-npm test              # bridge + preset + cordis-mount（后两者缺 DSH 时自动 skip）
+npm test              # bridge + environment + preset + cordis-mount（后两者缺 DSH 时自动 skip）
+npm run doctor        # 安装后自检：打印 Node / REA / Hopper / Ghidra / IDA 现状与安装指引（只读）
+npm run doctor -- --json --strict   # 机器可读；无可用引擎时退出码 1
 npm run test:live     # 连真 REA，报告注册数量与 schema 体积（需要 registry）
 npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会话
 ```
+
+`npm run doctor` 默认经配置的 runner 调用 `rea-agents@<version> doctor --format json`，失败时
+退回本地探测并**标注来源**；`--local` 直接走本地探测（离线、最快）。两者都不安装任何东西，
+需要引擎时按输出的 `env` 片段改 preset 行即可。
 
 **改动生效规则（本 profile 的硬约束）**：
 
@@ -166,8 +194,12 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
    `npm exec rea-agents@<version> mcp` 与其 node 子进程；没有则说明预设没挂载或 REA 没起来。
 2. `npm run session:log -- <日志> --tools` → 输出该会话**真实绑定**的预设与 REA 工具定义数。
 3. 宿主终端日志（`dsh web` 的 stdout）里应有
-   `dsh-rea: registered N/M REA tools (x%, ~yk schema bytes)`；预设加载失败时的格式是
+   `dsh-rea: registered N/M REA tools (x%, ~yk schema bytes)`，其后是环境自检行：
+   无引擎时 `dsh-rea: environment check: no native analysis engine found (Hopper/Ghidra/IDA); …`，
+   就绪时 `dsh-rea: environment check: native analysis ready via <引擎>`；预设加载失败时的格式是
    `<行 id> (<名字>): <detail>`，例如 `rea-bridge (dsh-reverse-mode): …`。
+4. `npm run doctor` 的结论应与第 3 条一致（同一份 REA `doctor` 输出）；`standard` 会话不会
+   出现该行，因为它根本不挂载本插件。
 
 ---
 
@@ -192,10 +224,10 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 
 1. **`standard` 预设漂移**：升级 DSH 后需手工把 `standard` 新增行同步进
    `presets/reverse.patch.yml`（`npm test` 的 preset 用例会提醒）。
-2. **层级语义不一致（上游遗留）**：`resolveAllowed()` 直接取 `TIERS[selector]`，
-   `navigate` / `analyze` 是**替换**而非累加；但 `lib/catalog.js` 的注释与上游 README 用
-   "Adds …/ +30" 的累加表述。实测只验证了 `entry`（9/170）。**这是待决策项**：改成累加
-   （更符合文档直觉、成本更高）或改文档（保持与上游一致）。
+2. **层级语义（已决定：与上游一致）**：`resolveAllowed()` 直接取 `TIERS[selector]`，
+   `navigate` / `analyze` 是**替换**而非累加；`lib/catalog.js` 的注释仍沿用上游 "Adds …"
+   的累加表述。经确认**先跟上游 `dsh-rea` 保持一致**：不改语义、不重写 `catalog.js`。
+   若以后要改成累加，必须在 CHANGELOG 记录行为变更并同步修正本文件与 README。
 3. **REA 版本升级即可能改工具名**：未知名字只 warn 并跳过，不会崩；升级后请跑
    `npm run test:live` 核对数量，并复核 `tools` 清单。
 4. **默认静默降级**：`failOnStartupError: false` 时 REA 起不来只留一条日志 error，
@@ -212,35 +244,46 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
    Ghidra（原生代码）或 `extract_artifact`（`navigate` 层）或外部工具。
 9. **`private: true`**：包目前不可发布到 npm（也不需要，安装方式是 `link:`）。若要发布，
    见第 10 节清单。
+10. **环境自检与 REA 版本绑定**：插件读的是 `rea doctor --format json` 的输出形状与
+    `--filter-output` 参数（当前绑定 6.4.0）。REA 改输出形状时：`summarizeDoctor` 会因
+    `scope_checks` 缺失而判为"不可读" → 自动退回本地探测（已实现），不会崩；
+    升级 `version` 后请同时跑 `npm run doctor` 与 `npm test`。
+11. **本地探测是保守的近似**：它只认 REA 真正读取的变量（`GHIDRA_INSTALL_DIR`、
+    `HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`）与常见安装位置，因此可能漏报
+    （例如 Hopper 装在自编路径且没有设变量、Ghidra 装了变量却指向软链）。报告会标注
+    `检查来源：本地快速探测`；联网后应跑一次完整的 `npm run doctor` 复核。
+12. **自检的额外子进程成本**：每次预设挂载（每个逆向会话、每次 HMR 重组）会在 REA 连接
+    成功后再拉起一次短的 `npx … doctor`。它复用 npx 缓存、只读、不装东西，并由
+    `checkEnvironment: false` 关闭；teardown 会 `AbortController.abort()` 掉未完成的探测。
 
 ---
 
 ## 10. 首发状态与剩余步骤（开源清单）
 
-**已完成（本次交接时）**
+**已完成**
 
-- [x] `package.json` 的 `repository` / `homepage` / `bugs` 已填 `staralsnow/dsh-reverse-mode`
+- [x] `package.json` 的 `repository` / `homepage` / `bugs` 已填 `xingxue-ux/dsh-reverse-mode`
 - [x] `README.md` 安装段的 clone 地址已填同一仓库
-- [x] `git init -b main` + `git config core.fileMode false` + 全部文件 staged（19 个文件，
+- [x] `git init -b main` + `git config core.fileMode false` + 首发提交 `d5fcfe4`（19 个文件，
       无 `node_modules`；drvfs 上所有文件权限都是 777，关闭 fileMode 后不会污染历史）
-- [x] 仓库本地提交身份已设为 `staralsnow` / `staralsnow@users.noreply.github.com`
-      （Windows 侧全局 git 身份指向 GitCode 的 noreply 别名，与本仓库无关）
+- [x] 首发提交（`d5fcfe4`）的作者是 `staralsnow`（上一轮的本地身份）；**0.2.0 起本仓库
+      本地 git 身份改为仓库 owner `xingxue-ux`**（`215101529+xingxue-ux@users.noreply.github.com`）。
+      首发提交未改写，历史里保留原作者；如需全库统一，可在未推送前 `git rebase` 重写。
 - [x] "个人路径 / 凭据"扫描通过（见第 12 节命令，输出为空）
+- [x] **0.2.0 安装后环境自检**：`lib/environment.js` + `scripts/doctor.mjs` + 连接后自动自检
+      + 模式提示附加段 + `test/environment.test.mjs`（11 例离线）；`npm test` 全绿。
 
-**剩余步骤：建仓 + 推送（本机没有任何可复用的 GitHub 凭据）**
+**建仓 + 推送：gh CLI 已找到（Windows 侧），本次已执行**
 
-本机现状：**没有** `gh` CLI、**没有** `~/.git-credentials`、**没有**注册到 GitHub 的 SSH key
-（`ssh -T git@github.com` 端口 22 被代理挡、443 报 `Permission denied (publickey)`），
-也没有 `GH_TOKEN` / `GITHUB_TOKEN` 环境变量。所以推送必须由你在已登录的环境里完成，
-三条路任选：
+本机 gh 不在 WSL 的 `PATH` 里，而在 Windows 侧：
 
-1. **装 `gh` 走浏览器登录（最省事）**：`gh auth login` 选 HTTPS + 浏览器设备码，
-   然后 `gh repo create staralsnow/dsh-reverse-mode --public --source=. --remote=origin --push`
-2. **在 GitHub 网页建空仓库**，然后在这个目录里
-   `git remote add origin https://github.com/staralsnow/dsh-reverse-mode.git`
-   并 `git push -u origin main`（HTTPS 会要求 PAT 或触发 Windows 凭据管理器）
-3. **在 Windows 侧推送**：仓库位于 E: 盘，Windows 的 git 客户端可直接访问该目录，
-   用它已配置的凭据推送（WSL 里创建的 `.git` 对 Windows git 完全可用）
+```bash
+GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
+"$GH" auth status                              # 已登录 github.com 账号 xingxue-ux（keyring）
+```
+
+该账号没有 org，`staralsnow` 是另一个用户、当前 token 无法在其名下建仓，所以仓库落在
+`xingxue-ux/dsh-reverse-mode`（已在 `package.json` / `README.md` 同步）。推送方式见第 12 节。
 
 - [ ] 决定是否在 `LICENSE` 追加本 fork 的版权行（当前保留上游 MIT 原文，
       `NOTICE.md` 已写清溯源；MIT 只要求保留原版权声明）
@@ -275,6 +318,17 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 - 离线量化：`npm run test:live` → `registered 9/170 REA tools (5%, ~98k schema bytes)`，
   注册项与 `ENTRY_TOOLS` 集合逐一相同
 
+**0.2.0 环境自检（本机实测，2026-10-13）**
+
+- `npm run doctor`（经 REA 自带 doctor，未装任何引擎）→ `引擎就绪 0/3`，逐条给出
+  `Run rea setup to install Hopper, or set HOPPER_LAUNCHER_PATH.`、
+  `Set GHIDRA_INSTALL_DIR to an extracted Ghidra 12.1.x release directory.`、
+  `Set REA_IDA_MCP_CONFIG to your upstream IDA MCP registration JSON; see docs/ida-provider.md.`，
+  并生成 `rea-bridge.config.env` 片段；退出码 0（`--strict` 时为 1）。
+- `npm run doctor -- --local` → `source: local-probe`、`nativeAnalysis: false`、三引擎
+  `available/configured` 均为 false；与 doctor 结论一致。
+- `npm test` → bridge 8 例、environment 11 例、preset 4 例、cordis-mount 2 例，全绿。
+
 ---
 
 ## 12. 常用命令速查
@@ -285,6 +339,11 @@ cd "<repo>"
 
 # 离线测试（无网络、无引擎；缺 DSH 的用例自动 skip）
 npm test
+
+# 安装后环境自检：Node / REA / Hopper / Ghidra / IDA 现状与安装指引（只读）
+npm run doctor
+npm run doctor -- --json --strict   # 机器可读；无可用引擎时退出码 1
+npm run doctor -- --local           # 不启动子进程，离线最快
 
 # 连真 REA 量化当前层级
 npm run test:live
@@ -303,37 +362,47 @@ ls -la ~/.dsh/profiles/web/node_modules/dsh-reverse-mode
 grep -rnE '/(home|Users)/[A-Za-z0-9_.-]+/|sk-[A-Za-z0-9]{8}|api[_-]?key' --include='*' . \
   | grep -v node_modules
 
-# 首发提交已于本次交接完成（身份为仓库本地配置）：
-#   git config user.name  -> staralsnow
-#   git config user.email -> staralsnow@users.noreply.github.com
-# 之后如需重来：
-git init -b main && git config core.fileMode false
-git config user.name "staralsnow"
-git config user.email "staralsnow@users.noreply.github.com"
-git add -A && git commit -m "feat: initial release 0.1.0"
+# 提交历史与本地身份：
+#   0.1.0 首发提交 d5fcfe4，作者 staralsnow（上一轮身份，未改写）
+#   0.2.0 起本地身份 = 仓库 owner：
+git config user.name "xingxue-ux"
+git config user.email "215101529+xingxue-ux@users.noreply.github.com"
+git add -A && git commit -m "feat: install-time environment self-check (0.2.0)"
 
-# 建仓 + 推送（三选一，见第 10 节；本机无 gh / 无凭据）
-gh repo create staralsnow/dsh-reverse-mode --public --source=. --remote=origin --push
-# 或
-git remote add origin https://github.com/staralsnow/dsh-reverse-mode.git && git push -u origin main
+# 建仓 + 推送：gh 在 Windows 侧（WSL 的 PATH 里没有），见第 10 节
+GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
+"$GH" auth status
+"$GH" repo create xingxue-ux/dsh-reverse-mode --public --source=. --remote=origin --push
+# 若 gh 的 Windows/ WSL 路径互操作有问题，退回用 WSL git + gh 的 token（不要把 token 写进 .git/config）：
+#   TOKEN=$("$GH" auth token)
+#   git remote add origin https://github.com/xingxue-ux/dsh-reverse-mode.git
+#   git push "https://x-access-token:${TOKEN}@github.com/xingxue-ux/dsh-reverse-mode.git" main:main
+#   git push -u origin main   # 之后凭据由 gh 的 helper 提供
+
+# 推送后确认 CI
+"$GH" run list --repo xingxue-ux/dsh-reverse-mode
 ```
 
 ---
 
 ## 13. 未决问题 / 建议路线
 
-1. **层级语义**（第 9.2 条）：替换 vs 累加 —— 建议先定语义再动 `catalog.js`，
-   并在 CHANGELOG 记录行为变更。
-2. **惰性启动**：目前 boot 即拉起一个常驻 REA 子进程（即使没人用）。可改成
-   "注册时用内置 schema 快照、首次调用才 spawn"，代价是需要维护一份与 `version`
-   绑定的 schema 快照。
-3. **子进程池化/共享**：多逆向会话 = 多进程。若要做，需明确 REA 会话隔离语义。
-4. **接 Ghidra**：在 `rea-bridge.config.env` 加 `GHIDRA_INSTALL_DIR`（本机 JDK 已就绪），
-   即可解锁伪代码 / 交叉引用等原生深挖。
-5. **上游同步**：`lib/catalog.js` 保持与 `dsh-rea` 一致；`lib/index.js` 的三处偏离中，
-   `logger` 注入与 `dispose` no-op 是**上游 bug**，建议回报上游 issue/PR
-   （`inject` 那处是本 fork 自己的必修项，不涉及上游）。
-6. **文档 i18n**：当前以中文为主；若面向英文用户，补 `README.en.md` 与
-   `HANDOFF.en.md`，并保持 `NOTICE.md` 双语或保留英文。
-7. **CI 增强**：可在 ubuntu runner 上装一份最小 DSH 以真正跑 `preset` / `cordis-mount`
-   用例（当前它们 skip）。
+**已决定（用户指示：先跟上游项目 `dsh-rea` 保持一致）** —— 以下各项本版**不改**，即保持
+与所 fork 上游相同的行为与形态，避免在无明确需求时制造分叉：
+
+1. **层级语义**（第 9.2 条）：保持**替换**语义，`lib/catalog.js` 仍逐字复制，不改累加、不改注释。
+2. **惰性启动**：保持现状 —— boot/挂载即拉起常驻 REA 子进程，不做"内置 schema 快照 + 首调 spawn"。
+3. **子进程池化/共享**：不做。多逆向会话 = 多进程，与上游一致。
+4. **文档 i18n**：暂不新增 `README.en.md` / `HANDOFF.en.md`；文档继续以中文为主。
+5. **CI 增强**：暂不在 CI 里装 DSH；`preset` / `cordis-mount` 用例缺 DSH 时继续 skip。
+6. **上游 bug 回报**：`logger` 注入与 `dispose` no-op 仍是上游 bug，本 fork 已在 `lib/index.js`
+   修掉。gh 凭据现在可用（`xingxue-ux`），但向上游公开提 issue/PR 属于对外动作，待用户决定。
+7. **引擎接入（第 9.4 条相关）**：Ghidra 依旧"使用者自备 + `env` 注入"，本包只做检测与引导
+   （0.2.0 的 `npm run doctor`），不代为安装 —— 与 REA/上游"bring your own"的立场一致。
+
+**仍待办（需要外部条件，非设计问题）**
+
+- 建仓 + 推送：本机无 `gh` / 无凭据，见第 10 节三条路径。
+- 若要让自检更完整，可在联网机器上跑一次 `npm run doctor -- --json` 并把结果留档（本机
+  已跑，结论见第 11 节）。
+- Windows / macOS 上验证 `npm run doctor`（`resolveRunner` 已处理 `npx.cmd`，但未实测）。

@@ -1,6 +1,8 @@
 # Offline checks only: the suite needs no network and no analysis engine.
 #
-# `test/bridge.test.mjs` runs fully everywhere (it spawns a fake REA server).
+# `test/bridge.test.mjs` runs fully everywhere (it spawns a fake REA server),
+# and `test/environment.test.mjs` is offline too (canned `rea doctor` payloads,
+# a temporary fake environment and an `npx` shim).
 # `test/preset.test.mjs` and `test/cordis-mount.test.mjs` need a DSH
 # installation to compare against / to load cordis from; on a machine without
 # one they print `skip:` and exit 0, which is deliberate so CI stays green on a
@@ -29,6 +31,6 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Syntax check every module
         run: |
-          for file in lib/*.js test/*.mjs test/*.js; do node --check "$file"; done
+          for file in lib/*.js scripts/*.mjs test/*.mjs test/*.js; do node --check "$file"; done
       - name: Offline test suite
         run: npm test

@@ -155,6 +155,16 @@
           # REA reverse-engineering bridge: the only place this plugin is
           # mounted. Curated tier `entry` (~27k tokens of schema per request);
           # deeper tiers or the full catalog: edit `tools`, or use the REA CLI.
+          #
+          # Native deep analysis needs one analysis engine the user supplies
+          # (Hopper / Ghidra / IDA); archives, packages, JS/Electron and managed
+          # assemblies need none. `npm run doctor` reports what is present and
+          # prints the exact snippet below; the plugin also logs the verdict once
+          # per mount. Engine variables are passed through `env`, e.g.:
+          #   env:
+          #     GHIDRA_INSTALL_DIR: /opt/ghidra_12.1.1_PUBLIC
+          #     HOPPER_LAUNCHER_PATH: /Applications/Hopper Disassembler.app/Contents/MacOS/hopper
+          #     REA_IDA_MCP_CONFIG: /path/to/ida-mcp-registration.json
           - id: rea-bridge
             name: dsh-reverse-mode
             config:

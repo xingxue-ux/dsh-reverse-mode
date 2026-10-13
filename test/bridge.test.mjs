@@ -35,16 +35,42 @@ async function test(name, fn) {
   }
 }
 
+/** `rea doctor` output for an environment without any analysis engine. */
+const NO_ENGINE_DOCTOR = {
+  healthy: false,
+  environment_healthy: false,
+  scope_checks: [
+    { name: 'node', ok: true, classification: 'healthy', detail: '22.23.2' },
+    { name: 'hopper', ok: false, classification: 'missing_analysis_engine' },
+    {
+      name: 'ghidra',
+      ok: false,
+      classification: 'missing_analysis_engine',
+      detail: 'GHIDRA_INSTALL_DIR is not set',
+      remediation: 'Set GHIDRA_INSTALL_DIR to an extracted Ghidra 12.1.x release directory.',
+    },
+  ],
+  providerInspections: [{ id: 'ghidra', configured: false, available: false, checks: [] }],
+}
+
 /**
- * Build an executable shim named `npx` that ignores its arguments and runs the
- * fake server, so `apply()` can spawn it through its normal config path.
+ * Build an executable shim named `npx` that answers both of the plugin's
+ * subprocesses: MCP argv (`… mcp`) runs the fake server, and `doctor` argv
+ * prints a canned `rea doctor` report, so the environment self-check is
+ * exercised through its real spawn path.
  *
+ * @param doctorPayload - Optional `rea doctor` payload; defaults to "no engine".
  * @returns the shim's absolute path.
  */
-function makeNpxShim() {
+function makeNpxShim(doctorPayload = NO_ENGINE_DOCTOR) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-reverse-mode-'))
+  const payload = join(dir, 'doctor.json')
+  writeFileSync(payload, JSON.stringify(doctorPayload))
   const shim = join(dir, 'npx')
-  writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${fakeServer}"\n`)
+  writeFileSync(
+    shim,
+    `#!/bin/sh\ncase "$*" in\n  *doctor*) cat "${payload}" ;;\n  *) exec "${process.execPath}" "${fakeServer}" ;;\nesac\n`,
+  )
   chmodSync(shim, 0o755)
   return shim
 }
@@ -188,6 +214,7 @@ await test('apply registers exactly the curated tier and a scoped prompt section
     version: '0.0.0',
     tools: 'entry',
     startupTimeoutMs: 15_000,
+    checkEnvironment: false,
   })
   await waitFor(() => harness.registered.size > 0, 15_000, 'tools to be registered')
 
@@ -226,6 +253,7 @@ await test('registered tools render results and surface isError', async () => {
     tools: ['open_binary', 'binary_overview'],
     startupTimeoutMs: 15_000,
     guidance: false,
+    checkEnvironment: false,
   })
   await waitFor(() => harness.registered.size === 2, 15_000, 'both tools to be registered')
   assert.deepEqual(harness.sections, [], 'guidance can be switched off')
@@ -239,6 +267,66 @@ await test('registered tools render results and surface isError', async () => {
   const openBinary = harness.registered.get('rea__open_binary')
   await assert.rejects(openBinary.execute({}, {}), /open_binary requires a path/)
 
+  harness.dispose()
+})
+
+await test('the environment self-check warns and reaches the mode prompt', async () => {
+  const harness = makeCtx()
+  apply(harness.ctx, {
+    runner: makeNpxShim(),
+    version: '0.0.0',
+    startupTimeoutMs: 15_000,
+    environmentCheckTimeoutMs: 10_000,
+  })
+  await waitFor(() => harness.registered.size > 0, 15_000, 'tools to be registered')
+  await waitFor(
+    () => harness.logs.warn.some((line) => line.includes('environment check')),
+    15_000,
+    'the environment note to be logged',
+  )
+  assert.ok(
+    harness.logs.warn.some((line) => line.includes('no native analysis engine found')),
+    harness.logs.warn.join(' | '),
+  )
+  assert.deepEqual(harness.logs.error, [], 'a missing engine is not an error')
+  const text = harness.sections[0].text()
+  assert.match(text, /环境自检/)
+  assert.match(text, /Ghidra/)
+  assert.match(text, /npm run doctor/)
+  harness.dispose()
+})
+
+await test('a ready engine is logged as info and stays out of the prompt', async () => {
+  const ready = {
+    ...NO_ENGINE_DOCTOR,
+    healthy: true,
+    environment_healthy: true,
+    scope_checks: [
+      { name: 'node', ok: true, classification: 'healthy', detail: '22.23.2' },
+      { name: 'hopper', ok: false, classification: 'missing_analysis_engine' },
+      { name: 'ghidra', ok: true, classification: 'healthy', detail: '/opt/ghidra_12.1.1_PUBLIC' },
+    ],
+    providerInspections: [
+      { id: 'ghidra', configured: true, available: true, providerVersion: '12.1.1', checks: [] },
+    ],
+  }
+  const harness = makeCtx()
+  apply(harness.ctx, {
+    runner: makeNpxShim(ready),
+    version: '0.0.0',
+    startupTimeoutMs: 15_000,
+    environmentCheckTimeoutMs: 10_000,
+  })
+  await waitFor(
+    () => harness.logs.info.some((line) => line.includes('environment check')),
+    15_000,
+    'the environment info line to be logged',
+  )
+  assert.ok(
+    harness.logs.info.some((line) => line.includes('native analysis ready via Ghidra')),
+    harness.logs.info.join(' | '),
+  )
+  assert.ok(!harness.sections[0].text().includes('环境自检'), 'no note when an engine is ready')
   harness.dispose()
 })
 
