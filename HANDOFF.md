@@ -276,8 +276,9 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 
 - [x] `package.json` 的 `repository` / `homepage` / `bugs` 已填 `xingxue-ux/dsh-reverse-mode`
 - [x] `README.md` 安装段的 clone 地址已填同一仓库
-- [x] `git init -b main` + `git config core.fileMode false` + 首发提交 `d5fcfe4`（19 个文件，
-      无 `node_modules`；drvfs 上所有文件权限都是 777，关闭 fileMode 后不会污染历史）
+- [x] `git init -b main` + `git config core.fileMode false` + 首发提交（19 个文件，
+      无 `node_modules`；drvfs 上所有文件权限都是 777，关闭 fileMode 后不会污染历史；
+      该提交现在写作 `c3e0efa`，见下方"作者统一"）
 - [x] **全部提交的作者已统一为仓库 owner**：`git filter-branch --env-filter` 把
       author/committer 都改为 `xingxue-ux` / `215101529+xingxue-ux@users.noreply.github.com`
       （提交信息与日期保留；0.1.0 首发提交原本是上一轮身份 `staralsnow`）。
@@ -300,9 +301,16 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
 **`xingxue-ux/dsh-reverse-mode`（PUBLIC，default `main`）**，已在 `package.json` /
 `README.md` 同步。实际结果：
 
-- 推送：`main` → `d64da40`（含 `d5fcfe4` + `d64da40` 两个提交），本地 `main` 已跟踪 `origin/main`
-- CI：run [`38345379722`](https://github.com/xingxue-ux/dsh-reverse-mode/actions/runs/38345379722)
-  = **completed/success**（node 22.19 与 24 两个矩阵任务都跑完语法检查 + 离线用例）
+- 推送（**作者统一后强推的最终状态**）：`main` → `9a7dea2`，共 4 个提交，
+  全部作者/提交者均为 `xingxue-ux`：
+  `c3e0efa` 0.1.0 → `20f462d` 0.2.0 → `9821a7d` 发布记录 → `9a7dea2` 署名/CI v5/上游漂移更正。
+  本地 `main` 已跟踪 `origin/main`。
+  （重写前推送过的 `d5fcfe4` / `d64da40` / `e8e3702` 已不在远端历史中。）
+- CI（重写后）：run [`38346120633`](https://github.com/xingxue-ux/dsh-reverse-mode/actions/runs/38346120633)
+  = **completed/success**，且已在 `actions/checkout@v5` + `actions/setup-node@v5` 上运行
+  （Node 20 弃用 annotation 已消失）。
+- 历史：重写前的两次成功 run（[`38345379722`](https://github.com/xingxue-ux/dsh-reverse-mode/actions/runs/38345379722)@d64da40、
+  [`38345461166`](https://github.com/xingxue-ux/dsh-reverse-mode/actions/runs/38345461166)@e8e3702）仍可在 Actions 里看到。
 - 过程中的两个坑（已解决，供下次参考）：
   1. **`workflow` scope**：gh 令牌原本只有 `gist, read:org, repo`，含
      `.github/workflows/` 的提交会被 GitHub 拒绝，报 `refusing to allow an OAuth App to
