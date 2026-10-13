@@ -18,8 +18,9 @@
  *   `record.rows.agentPreset`);
  * - counting the literal `rea__` matches conversation text, so "the model
  *   mentioned a tool" looks like "the tool was registered". Only the JSON shape
- *   `"name":"rea__…"` (with `"description"`) proves the tool was offered to the
- *   session.
+ *   `"name":"rea__…"` / `"name":"mcp__rea__…"` (with `"description"`) proves the
+ *   tool was offered to the session — the prefix depends on which bridge
+ *   mounted (built-in `rea__`, official `mcp__rea__`).
  *
  * Usage:
  *   node test/read-session-log.mjs <session.v4.jsonl.zstd> [--tools] [--text]
@@ -98,10 +99,26 @@ if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${proce
     process.stdout.write(`bound preset    ${record.rows.agentPreset?.val ?? '(none)'}  (${projection})\n`)
   }
 
-  const definitions = [...new Set([...text.matchAll(/"name":"(rea__[a-z_]+)"/g)].map((m) => m[1]))].sort()
+  const definitions = [
+    ...new Set(
+      [...text.matchAll(/"name":"((?:mcp__)?rea__[a-z_]+)"/g)].map((match) => match[1]),
+    ),
+  ].sort()
+  const byPrefix = definitions.reduce((counts, name) => {
+    const key = name.startsWith('mcp__rea__') ? 'mcp__rea__ (official bridge)' : 'rea__ (built-in bridge)'
+    counts[key] = (counts[key] ?? 0) + 1
+    return counts
+  }, {})
   process.stdout.write(
     `REA definitions ${definitions.length}${definitions.length === 0 ? '' : `: ${definitions.join(', ')}`}\n`,
   )
+  if (definitions.length > 0) {
+    process.stdout.write(
+      `bridge inferred ${Object.entries(byPrefix)
+        .map(([key, count]) => `${key}: ${String(count)}`)
+        .join(', ')}\n`,
+    )
+  }
   process.stdout.write(
     `literal rea__   ${(text.match(/rea__/g) ?? []).length} (conversation text included; not evidence of registration)\n`,
   )

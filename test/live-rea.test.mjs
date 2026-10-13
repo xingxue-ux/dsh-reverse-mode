@@ -1,6 +1,11 @@
 /**
- * Opt-in live check: mounts the bridge through the real cordis runtime against
- * the real `rea-agents` server, then reports the curated surface it registers.
+ * Opt-in live check: mounts the plugin through the real cordis runtime against
+ * the real `rea-agents` server, then reports the surface it registers.
+ *
+ * It mirrors the **shipped preset configuration** by default
+ * (`bridge: official`, `tools: all`), so the numbers describe what users
+ * actually get; override with `DSH_REVERSE_MODE_LIVE_BRIDGE=builtin` and
+ * `DSH_REVERSE_MODE_LIVE_TOOLS=entry` to measure the filtering tier instead.
  *
  * It needs the npm registry (first run downloads the pinned REA version), so it
  * is skipped unless DSH_REVERSE_MODE_LIVE=1 is set. Every other test in this
@@ -59,7 +64,11 @@ ctx.logger = {
   error: (message) => logs.push(`error: ${String(message)}`),
 }
 
-const fiber = ctx.plugin(plugin, { tools: 'entry' })
+// Mirrors presets/reverse.patch.yml; override to measure another configuration.
+const bridgeMode = process.env.DSH_REVERSE_MODE_LIVE_BRIDGE ?? 'official'
+const toolsSelector = process.env.DSH_REVERSE_MODE_LIVE_TOOLS ?? 'all'
+process.stdout.write(`config: bridge=${bridgeMode}, tools=${toolsSelector}\n`)
+const fiber = ctx.plugin(plugin, { tools: toolsSelector, bridge: bridgeMode })
 
 ctx.provide('systemPrompt', {
   getSectionOrder: () => 600,
@@ -84,13 +93,20 @@ try {
 for (const line of logs) process.stdout.write(`     ${line}\n`)
 
 const names = [...registered.keys()].sort()
-const schemaBytes = JSON.stringify([...registered.values()]).length
+// Model-visible schema: what a tool-calling request actually carries (the
+// registered `output` schema and function properties never reach the model).
+const modelBytes = JSON.stringify(
+  names.map((name) => {
+    const definition = registered.get(name)
+    return { name, description: definition.description ?? '', parameters: definition.parameters ?? {} }
+  }),
+).length
 process.stdout.write(
-  `\nregistered ${names.length} tools, ${(schemaBytes / 1000).toFixed(1)} kB of schema:\n`,
+  `\nregistered ${names.length} tools, ${(modelBytes / 1000).toFixed(1)} kB of model-visible schema:\n`,
 )
 for (const name of names) {
   const description = registered.get(name).description ?? ''
-  process.stdout.write(`  ${name.replace(/^rea__/, '').padEnd(32)} ${description.slice(0, 60)}\n`)
+  process.stdout.write(`  ${name.replace(/^(mcp__)?rea__/, '').padEnd(32)} ${description.slice(0, 60)}\n`)
 }
 process.stdout.write(`\nprompt sections: ${sections.map((s) => s.name).join(', ') || '(none)'}\n`)
 
