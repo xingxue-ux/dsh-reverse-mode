@@ -1,6 +1,6 @@
 {
   "name": "dsh-reverse-mode",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Reverse-engineering agent preset for DeepSeek Harness: a REA (rea-agents) MCP bridge mounted only by the 逆向模式 preset",
   "license": "MIT",
@@ -29,7 +29,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/bridge.test.mjs && node test/environment.test.mjs && node test/preset.test.mjs && node test/cordis-mount.test.mjs",
+    "test": "node test/bridge.test.mjs && node test/environment.test.mjs && node test/official-bridge.test.mjs && node test/preset.test.mjs && node test/cordis-mount.test.mjs",
     "test:live": "DSH_REVERSE_MODE_LIVE=1 node test/live-rea.test.mjs",
     "doctor": "node scripts/doctor.mjs",
     "session:log": "node test/read-session-log.mjs"

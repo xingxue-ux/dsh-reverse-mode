@@ -3,6 +3,47 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-13
+
+默认改用 harness 自带的官方 MCP 桥（解析不到时自动回退到内置桥），并公开实测成本。
+
+### Added
+
+- `lib/official-bridge.js`：运行时用 `createRequire` 锚定启动器共享的
+  `~/.dsh/profiles/node_modules`（它是指向 DSH 安装目录的符号链接），解析并 `import`
+  **宿主自己那一份** `@deepseek-ai/dsh-mcp-client`。因此仍是 `link:` 安装、仓库仍是零依赖、
+  也没有 `@deepseek-ai/*` 的重复副本；`loadOfficialBridge()` 永不抛错，`chooseBridge()`
+  决定用哪条桥。
+- 配置 `bridge`（`auto` / `official` / `builtin`，默认 `auto`）。`auto` **只在没有筛选需求**
+  （`tools: all` / `null`）时选官方桥，避免把 9 个工具悄悄放大到 170 个（约 39×）。
+- 官方桥在**预设 scope 内**挂载（`ctx.plugin(mcp, …)`），保留"只有逆向模式付费"这一本 fork
+  的核心差异（上游是全局挂载），并设 `reconnect: { enabled: false }`（REA 有状态）。
+- 随官方桥一起获得：SDK 分页、工具表变化订阅、注册失败整代回滚、canonical
+  `structuredContent`/图片保真、取消与超时细化、**环境变量清理**（丢弃名字匹配
+  `KEY/PASSWORD/SECRET/TOKEN` 的继承变量与 `DSH_*`；显式 `env` 中的引擎变量照常生效）。
+- 模式提示跟随实际前缀（官方桥 `mcp__rea__` / 内置桥 `rea__`），并按"是否筛选"改写措辞。
+
+### Changed
+
+- `presets/reverse.patch.yml` 的 `rea-bridge` 行改为 `bridge: official` + `tools: all`
+  （即全量 ~170 工具）。回到低成本档位只需改成 `bridge: builtin` + `tools: entry`。
+- 版本 `0.2.0` → `0.3.0`。
+- 内置桥的注册日志从"raw schema bytes"改成**模型可见字节**：旧口径把 REA 的 output
+  schema 与 annotations 也算进去，把开销说大约 8 倍（entry 报 ~98k，实际 ~11k）。
+- README 成本数字更正为实测口径：`entry` ≈ 11 kB ≈ 2.8k token、全量 ≈ 436 kB ≈ 10.9 万
+  token；原文的 98 kB/2.7 万与 1.9 MB/54 万是错误口径。同时更正
+  `NAVIGATE_TOOLS` 实为 **30** 个（原文写 31）、策展并集 **56**（原文写 57）。
+
+### Verified
+
+- `npm test` 全绿：bridge 8 + environment 11 + official-bridge 9 + preset 4 + cordis-mount 3 = **35**。
+- 离线即可复现官方桥的真实挂载：`test/cordis-mount.test.mjs` 用真实 cordis + 假 REA server，
+  断言注册出 `mcp__rea__*`、导航层工具同样存在（官方桥无 allow-list）、dispose 后归零；
+  官方桥解析不到时该用例自动 skip。
+- 真机（REA 6.4.0）：官方桥在真实 cordis 预设 scope 内挂载成功，注册 **170** 个
+  `mcp__rea__*` 工具（模型可见 ~432,845 B ≈ 10.8 万 token），`dispose` 后归零、
+  **无残留 REA 子进程**。
+
 ## [0.2.0] - 2026-10-13
 
 安装后环境自检：把「原生深挖需要一个使用者自备的分析引擎」这件事在安装后立刻讲清楚。

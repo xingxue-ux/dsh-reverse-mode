@@ -100,7 +100,8 @@ test('the child list is standard plus one REA bridge row', () => {
   const bridge = rows[rows.length - 1]
   assert.equal(bridge.id, 'rea-bridge')
   assert.equal(bridge.name, 'dsh-reverse-mode', 'the child row names this fork')
-  assert.equal(bridge.config.tools, 'entry', 'the default tier is the curated entry set')
+  assert.equal(bridge.config.bridge, 'official', 'the preset uses the harness-provided bridge')
+  assert.equal(bridge.config.tools, 'all', 'the official bridge has no allow-list, so tools must be all')
   assert.equal(bridge.config.version, '6.4.0')
   assert.equal(bridge.config.toolCallTimeoutMs, 300_000)
 })

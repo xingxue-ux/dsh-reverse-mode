@@ -144,13 +144,26 @@ await test('parseConfig fills defaults and reports unknown fields/tiers', () => 
   assert.equal(bare.config.version, '6.4.0')
   assert.equal(bare.config.toolCallTimeoutMs, 300_000)
   assert.equal(bare.config.guidance, true)
+  assert.equal(bare.config.bridge, 'auto', 'auto keeps a filtering selector on the built-in bridge')
 
-  const noisy = parseConfig({ tools: 'nope', nonsense: 1, toolCallTimeoutMs: -5, env: { A: 'b' } })
+  const noisy = parseConfig({
+    tools: 'nope',
+    nonsense: 1,
+    toolCallTimeoutMs: -5,
+    env: { A: 'b' },
+    bridge: 'sideways',
+  })
   assert.equal(noisy.config.tools, 'entry', 'unknown tier falls back to entry')
   assert.equal(noisy.config.toolCallTimeoutMs, 300_000, 'invalid timeout keeps the default')
+  assert.equal(noisy.config.bridge, 'auto', 'invalid bridge mode keeps the default')
   assert.deepEqual(noisy.config.env, { A: 'b' })
-  assert.equal(noisy.problems.length, 3, noisy.problems.join(' | '))
+  assert.equal(noisy.problems.length, 4, noisy.problems.join(' | '))
   assert.ok(noisy.problems.some((p) => p.includes('unknown config field "nonsense"')))
+  assert.ok(noisy.problems.some((p) => p.includes('"bridge" must be')))
+
+  for (const mode of ['auto', 'official', 'builtin']) {
+    assert.equal(parseConfig({ bridge: mode }).config.bridge, mode)
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -238,6 +251,10 @@ await test('apply registers exactly the curated tier and a scoped prompt section
   assert.ok(
     harness.logs.info.some((line) => line.includes('registered 2/3 REA tools')),
     harness.logs.info.join(' | '),
+  )
+  assert.ok(
+    harness.logs.info.some((line) => line.includes('bridge=builtin')),
+    'a tier selector stays on the filtering, built-in bridge',
   )
   assert.deepEqual(harness.logs.error, [], 'startup succeeds')
 

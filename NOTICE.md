@@ -24,20 +24,24 @@ that contributed is listed here.
 
 3. **DeepSeek Harness** — `@deepseek-ai/dsh-web-app`,
    `@deepseek-ai/dsh-agent-preset`, `@deepseek-ai/dsh-agent-preset-registry`,
-   `@deepseek-ai/cordis`, … — MIT.
+   `@deepseek-ai/cordis`, `@deepseek-ai/dsh-mcp-client`, … — MIT.
    `presets/reverse.patch.yml` reproduces the child-plugin row list of the
    shipped `standard` preset
    (`@deepseek-ai/dsh-web-app/presets/standard.patch.yml`) so that the preset is
    a complete replacement rather than a merge. Those row ids, package names and
    configuration values are configuration metadata read from that MIT-licensed
    package; no source file is copied. The head of the file records this.
+   **`@deepseek-ai/dsh-mcp-client` is not bundled either**: when available,
+   `lib/official-bridge.js` resolves the copy already installed with the running
+   harness and mounts that instance, so no Harness package is redistributed or
+   duplicated by this repository.
 
 ## This fork's own code
 
 `lib/index.js` (fork modifications), `lib/guidance.js`, `lib/mcp-stdio.js`,
-`lib/environment.js`, `scripts/doctor.mjs`, `presets/reverse.patch.yml`,
-`test/**`, `README.md`, `HANDOFF.md`, `CHANGELOG.md`, CI configuration — MIT, see
-[LICENSE](LICENSE).
+`lib/environment.js`, `lib/official-bridge.js`, `scripts/doctor.mjs`,
+`presets/reverse.patch.yml`, `test/**`, `README.md`, `HANDOFF.md`,
+`CHANGELOG.md`, CI configuration — MIT, see [LICENSE](LICENSE).
 
 ## Trademarks and separate products
 

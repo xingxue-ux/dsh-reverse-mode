@@ -1,12 +1,15 @@
 # Offline checks only: the suite needs no network and no analysis engine.
 #
 # `test/bridge.test.mjs` runs fully everywhere (it spawns a fake REA server),
-# and `test/environment.test.mjs` is offline too (canned `rea doctor` payloads,
-# a temporary fake environment and an `npx` shim).
+# `test/environment.test.mjs` is offline too (canned `rea doctor` payloads, a
+# temporary fake environment and an `npx` shim), and `test/official-bridge.test.mjs`
+# only fabricates anchor trees (its one host-resolving case skips without a DSH
+# installation).
 # `test/preset.test.mjs` and `test/cordis-mount.test.mjs` need a DSH
 # installation to compare against / to load cordis from; on a machine without
 # one they print `skip:` and exit 0, which is deliberate so CI stays green on a
-# plain runner.
+# plain runner. The official-bridge mount case inside `cordis-mount` skips for
+# the same reason.
 #
 # Live REA (`npm run test:live`) is intentionally not part of CI: it downloads
 # `rea-agents` and would make CI depend on the npm registry.

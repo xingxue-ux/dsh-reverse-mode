@@ -133,5 +133,62 @@ await test('activation waits for the injected services, then starts REA', async 
   assert.equal(registered.size, 0, 'disposal removes the registered tools')
 })
 
+// ---------------------------------------------------------------------------
+// The official bridge, mounted from inside the preset scope
+// ---------------------------------------------------------------------------
+
+const { loadOfficialBridge } = await import('../lib/official-bridge.js')
+const official = await loadOfficialBridge()
+
+if (official === null) {
+  process.stdout.write(
+    'skip: @deepseek-ai/dsh-mcp-client is not resolvable; official-bridge mount case skipped\n',
+  )
+} else {
+  await test('mounts the host official bridge in the preset scope (mcp__rea__ names)', async () => {
+    const registered = new Map()
+    const ctx = new Context()
+    ctx.provide('systemPrompt', {
+      getSectionOrder: () => 600,
+      section: () => () => {},
+    })
+    ctx.provide('tools', {
+      register: (definition) => {
+        registered.set(definition.name, definition)
+        return () => registered.delete(definition.name)
+      },
+    })
+    const fiber = ctx.plugin(plugin, {
+      runner: makeNpxShim(),
+      version: '0.0.0',
+      tools: 'all',
+      bridge: 'official',
+      guidance: false,
+      checkEnvironment: false,
+      toolCallTimeoutMs: 5_000,
+      startupTimeoutMs: 20_000,
+    })
+
+    await waitFor(() => registered.size > 0, 30_000, 'official-bridge tools to register')
+    assert.ok(
+      registered.has('mcp__rea__open_binary'),
+      `expected mcp__rea__open_binary, got: ${[...registered.keys()].join(', ')}`,
+    )
+    assert.ok(
+      registered.has('mcp__rea__list_procedures'),
+      'the official bridge has no allow-list, so navigate tools are present too',
+    )
+
+    // A round trip through the harness bridge (not our own client).
+    const overview = registered.get('mcp__rea__binary_overview')
+    const result = await overview.execute({}, {})
+    const rendered = JSON.stringify(overview.output?.render?.({}, result) ?? result)
+    assert.match(rendered, /fake:binary_overview:/, rendered)
+
+    await fiber.dispose()
+    assert.equal(registered.size, 0, 'disposal removes the bridged tools')
+  })
+}
+
 process.stdout.write(failures === 0 ? '\nall tests passed\n' : `\n${String(failures)} test(s) failed\n`)
 process.exitCode = failures === 0 ? 0 : 1

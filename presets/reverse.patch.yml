@@ -152,9 +152,17 @@
           - id: tool-plugin-manager
             name: '@deepseek-ai/dsh-plugin-manager/tools'
             disabled: true
-          # REA reverse-engineering bridge: the only place this plugin is
-          # mounted. Curated tier `entry` (~27k tokens of schema per request);
-          # deeper tiers or the full catalog: edit `tools`, or use the REA CLI.
+          # REA reverse-engineering bridge: the only place this plugin is mounted.
+          #
+          # `bridge: official` mounts the harness's own @deepseek-ai/dsh-mcp-client
+          # (resolved at runtime from the launcher's shared node_modules, so this
+          # stays a `link:` install with zero repo dependencies); if that package
+          # cannot be resolved the plugin falls back to its built-in client.
+          #
+          # The official bridge has no allow-list, so `tools` must be `all`:
+          # this session registers all ~170 REA tools (~436 kB / ~109k tokens of
+          # model-visible schema per request). For the cheap configuration
+          # instead, set `bridge: builtin` + `tools: entry` (9 tools, ~11 kB).
           #
           # Native deep analysis needs one analysis engine the user supplies
           # (Hopper / Ghidra / IDA); archives, packages, JS/Electron and managed
@@ -168,6 +176,7 @@
           - id: rea-bridge
             name: dsh-reverse-mode
             config:
-              tools: entry
+              bridge: official
+              tools: all
               version: '6.4.0'
               toolCallTimeoutMs: 300000

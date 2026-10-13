@@ -4,7 +4,7 @@
 判断改动是否生效、在真机上验证、并决定后续路线。
 
 - 仓库：`dsh-reverse-mode`（开源，MIT，见 `NOTICE.md` 溯源）
-- 版本：`0.2.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 版本：`0.3.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 唯一的现实使用场景：**DeepSeek Harness（DSH）** 的 `web` profile，预设「逆向模式」
 
 ---
@@ -13,8 +13,19 @@
 
 **是什么**：一个 DSH bundle 包，产物只有一个 —— **agent 预设
 `preset-reverse-engineering`（显示名「逆向模式」）**，该预设的子插件列表中挂了本项目
-自己的 REA 桥接插件（`lib/index.js`）。选择该预设的会话，会在常规工具箱之上多出 9 个
-`rea__*` 工具（默认 `entry` 层级）和一段「逆向模式」系统提示。
+自己的 REA 桥接插件（`lib/index.js`）。选择该预设的会话，会在常规工具箱之上多出 REA 的
+逆向工具和一段「逆向模式」系统提示。
+
+0.3.0 起有**两条桥**，配置项 `bridge`（默认 `auto`）选择：
+
+- **官方桥** `@deepseek-ai/dsh-mcp-client`（harness 自带，`lib/official-bridge.js` 在运行时
+  从 `~/.dsh/profiles/node_modules` 解析到宿主那一份），前缀 `mcp__rea__`，**注册全部 ~170 个**
+  工具（实测模型侧 ~432.8 kB ≈ 10.8 万 token/请求）；
+- **内置桥** `lib/mcp-stdio.js`（本仓库、零依赖），前缀 `rea__`，可按 `entry`/`navigate`/`analyze`
+  层级或显式数组筛选（`entry` 实测 ~11.2 kB ≈ 2.8k token/请求）。
+
+预设行现在预置 `bridge: official` + `tools: all`；改回 `bridge: builtin` + `tools: entry`
+即低开销档位。两条桥都**只在逆向模式的 scope 内**注册。
 
 安装后有两层**环境自检**（0.2.0 新增）：手动 `npm run doctor` 打印引擎现状与安装指引；
 插件在 REA 连接成功后会自动再查一次，缺失时写宿主日志并把提示并入模式系统提示。两者都
@@ -24,7 +35,8 @@
 
 - 不是全局 MCP 桥接。上游 [`dsh-rea`](https://github.com/JeremyWangCY/dsh-rea) 是
   "profile 顶层挂一行、所有会话共享"的形态；本项目刻意改成预设子插件，**只在逆向模式
-  的 scope 内**注册，其它预设零开销。
+  的 scope 内**注册，其它预设零开销——**即使现在用官方桥也一样**（官方桥的 `serverName`
+  是 per-scope 预留的，`inject` 只有 `tools`，可作预设子插件挂载）。
 - 不注册任何宿主级（profile 顶层）插件行，`cordis.patch.yml` 只有一条 `insert` 预设声明。
 - 不包含 REA 源码，也不含任何反编译引擎；REA 在运行时经 `npx` 拉起。
 - 不是安全沙箱。REA 与目标程序都以当前用户身份运行。
@@ -67,22 +79,24 @@
 | 文件 | 职责 | 改动前注意 |
 |---|---|---|
 | `presets/reverse.patch.yml` | `insert` 出 `@deepseek-ai/dsh-agent-preset` 声明：`id: reverse-engineering`、`name: 逆向模式`、`order: 5`、`plugins: [standard 全套… , rea-bridge]` | 子列表是快照，见机制 2；`rea-bridge` 行的 `config` 是唯一常规调参点 |
-| `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、REA 启动、目录筛选、`rea__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`checkEnvironment` 自检挂在 `connect()` 成功之后，缺失引擎只 warn |
+| `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、**桥选择（官方 / 内置）**、REA 启动、目录筛选、`*__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`apply` 现在是 **async**（要先 `await loadOfficialBridge()`），但提示段在 await **之前**注册；官方桥的 teardown 单独一个 effect |
+| `lib/official-bridge.js` | 运行时解析宿主自带的 `@deepseek-ai/dsh-mcp-client`：多锚点 `createRequire` + `chooseBridge()` 选择策略 + `isUnfiltered()` | **永不抛错**（解析失败返回 null → 回退内置桥）；`auto` 只在 `tools: all/null` 时选官方桥——否则会把 9 个工具放大到 170；锚点是 `DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`，改锚点先改 `test/official-bridge.test.mjs` |
 | `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
 | `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
-| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(31) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`，并改用官方桥 + 全量 170 工具；见第 9.13 条）；改它等于偏离本 fork 的基线 |
-| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第二参数是环境报告，仅无引擎时追加「环境自检」段 | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段 |
-| `lib/mcp-stdio.js` | 零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 为什么不用 `@modelcontextprotocol/sdk`：见第 4 节；`clientVersion` 由 `index.js` 从 `package.json` 注入 |
-| `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + 双模 `npx` shim（MCP / `doctor`），覆盖配置校验、筛选、渲染、超时、取消、启动失败降级、环境自检的日志与提示段 | 改 `apply()` 行为后先让这里绿；不需要自检的用例显式 `checkEnvironment: false` |
+| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(**30**) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`；见第 9.13 条）；只有内置桥会用它 |
+| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第 2 参数是环境报告，第 3 参数是**实际工具前缀**（`mcp__rea__` / `rea__`） | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段；前缀必须跟着实际挂载的桥 |
+| `lib/mcp-stdio.js` | **内置桥**：零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 见第 4 节；`clientVersion` 由 `index.js` 从 `package.json` 注入；官方桥解析不到时它就是唯一路径 |
+| `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + 双模 `npx` shim（MCP / `doctor`），覆盖配置校验（含 `bridge`）、筛选、渲染、超时、取消、启动失败降级、环境自检的日志与提示段 | 改 `apply()` 行为后先让这里绿；`tools` 选层级时走内置桥，用例显式 `checkEnvironment: false` |
+| `test/official-bridge.test.mjs` | 官方桥解析的离线用例：锚点推导、`chooseBridge` 策略矩阵、`isUnfiltered`、用假包测 `loadOfficialBridge`（含"不是插件"与"解析不到"）、本机共享目录存在时的真实解析 | 全离线；解析策略改动必须先改这里 |
 | `test/environment.test.mjs` | 环境自检的离线用例：Node 版本范围、`doctor` 投影、本地探测、报告渲染、CLI 端到端与 `--strict` 退出码 | 全部离线：canned payload + 临时假环境 + shim，不需要网络或引擎 |
-| `test/cordis-mount.test.mjs` | **真实 cordis** 的激活顺序回归：先挂插件、后 provide 服务，断言此时才注册 | 这是"加载失败"那个 bug 的防线，勿删 |
+| `test/cordis-mount.test.mjs` | **真实 cordis** 的激活顺序回归：先挂插件、后 provide 服务，断言此时才注册；另有一条**官方桥真实挂载**用例（假 REA server → `mcp__rea__*`） | 前者是"加载失败"那个 bug 的防线，勿删；官方桥用例在解析不到时自动 skip |
 | `test/preset.test.mjs` | 结构守卫：预设行字段、子列表 = standard + 恰好 1 行、id 不重复、元数据指向存在的文件、零依赖 | 需要本机 DSH 安装；没有则自动 skip |
 | `test/live-rea.test.mjs` | 按需连**真 REA**：报告注册数量与 schema 体积 | 需要 npm registry；默认 skip（`DSH_REVERSE_MODE_LIVE=1`） |
 | `test/read-session-log.mjs` | 事后核查工具：解析多帧 zstd 会话日志 + 投影，输出真实绑定预设与 REA 工具定义 | 排查"工具到底有没有给到某个会话"时用 |
 
 ---
 
-## 4. 为什么是零运行时依赖（重要设计决定）
+## 4. 为什么仍是零运行时依赖（以及怎么用官方桥）
 
 profile 插件用 `dsh plugin add link:<dir>` 安装后是一个**符号链接**。Node 的 ESM 解析会
 跟随到真实路径，于是插件内部的裸模块名会从**本仓库目录**而不是 profile 的
@@ -90,17 +104,24 @@ profile 插件用 `dsh plugin add link:<dir>` 安装后是一个**符号链接**
 目录（已实测：`import 'dep'` 从符号链接进入后报 `ERR_MODULE_NOT_FOUND`，报错路径是真实
 路径）。
 
-因此本包：**不 import 任何裸模块名**，包括：
+因此本包**不 import 任何裸模块名**：
 
-- MCP 客户端：自己实现 `lib/mcp-stdio.js`（只用 `node:child_process`）；
 - 配置校验：不导出 `Config`（schemastery）schema。cordis 的 `resolveConfig()` 在没有
-  `runtime.Config` 时原样返回 config，所以 `apply()` 收到原始对象，由
-  `parseConfig()` 补默认值并告警未知字段；
+  `runtime.Config` 时原样返回 config，所以 `apply()` 收到原始对象，由 `parseConfig()`
+  补默认值并告警未知字段；
+- **官方桥不靠裸导入**：`lib/official-bridge.js` 先用
+  `createRequire('<锚点>/noop.js').resolve('@deepseek-ai/dsh-mcp-client')` 拿到**绝对路径**，
+  再 `import(pathToFileURL(...))`。锚点是启动器共享的 `~/.dsh/profiles/node_modules`——实测
+  它是**指向 DSH 安装目录的符号链接**，所以拿到的是宿主自己那一份，不会出现第二份
+  `@deepseek-ai/*` 实例。这是绕开打包规范的 workaround：前提是 `~/.dsh` 布局，所以
+  `loadOfficialBridge()` 永不抛错，解析失败一律回退内置桥；
+- MCP 客户端（内置桥）：自己实现 `lib/mcp-stdio.js`（只用 `node:child_process`）；
 - 测试里唯一的外部依赖（`@deepseek-ai/cordis`）只出现在 **test**，且按绝对路径动态
   import，不进运行时依赖。
 
-推论：`package.json` 里没有 `dependencies` / `peerDependencies`，这是**有意**的，不要
-"顺手补上"。
+推论：`package.json` 里仍然没有 `dependencies` / `peerDependencies`，这是**有意**的，不要
+"顺手补上"。注意「运行时挂官方桥」与「声明 peerDependencies 按规范安装」是两条不同的路：
+后者更正统，但要放弃 `link:` 就地编辑（见第 13 节）。
 
 ---
 
@@ -110,24 +131,38 @@ profile 插件用 `dsh plugin add link:<dir>` 安装后是一个**符号链接**
 profile boot
   └─ bundle patch (presets/reverse.patch.yml) → insert 预设声明
        └─ registry 建立 preset scope + Loader 树（此处即激活子插件）
-            └─ dsh-reverse-mode.apply()
+            └─ dsh-reverse-mode.apply()  ← 现在是 async
                  ├─ inject 等待 tools + systemPrompt 就绪
-                 ├─ ctx.effect → systemPrompt.section('reverse-mode:policy')
-                 └─ spawn `npx -y rea-agents@6.4.0 mcp`（stdio，JSON-RPC 换行分帧）
-                      ├─ initialize / notifications/initialized
-                      ├─ tools/list（游标分页）→ 与 TIERS[tools] 求交集
-                      ├─ ctx.tools.register(`rea__<name>`, { parameters, output.render, timeoutMs })
-                      └─ checkEnvironment()（默认开，非阻塞）
-                           └─ spawn `npx -y rea-agents@6.4.0 doctor --format json --filter-output …`
-                                ├─ 成功 → 投影为 Hopper/Ghidra/IDA 判定 → 写日志 + 供模式提示读取
-                                └─ 失败 → 本地零依赖探测（env 变量 + 常见路径），标注来源
-模型调用某一 rea__ 工具
-  └─ execute() → client.callTool({name, arguments}, {signal, timeout})
-       └─ REA 执行（静态 JS 分析无需引擎；原生深挖才需要 Hopper/Ghidra/IDA）
-            └─ 结果原样回传（保留 evidence_id / limitations），isError 时抛错
+                 ├─ ctx.effect → systemPrompt.section('reverse-mode:policy')（在 await 之前）
+                 ├─ await loadOfficialBridge()  ← createRequire 锚点解析宿主那一份（可能为 null）
+                 └─ chooseBridge({bridge, tools, officialAvailable})
+                      │
+                      ├── 'official'（预设默认：bridge=official, tools=all）
+                      │    ├─ ctx.plugin(@deepseek-ai/dsh-mcp-client, { transport:'stdio',
+                      │    │     serverName:'rea', command:'npx', args:['-y','rea-agents@6.4.0','mcp'],
+                      │    │     env: config.env, reconnect:{enabled:false} })
+                      │    │    ├─ 官方桥先起 probe 进程、再起 serve 进程（npx 冷启动 ×2）
+                      │    │    ├─ SDK 分页 tools/list → ctx.tools.register(`mcp__rea__<name>`, …)
+                      │    │    └─ 目录变化订阅 / 注册回滚 / canonical 输出 / env 清理
+                      │    └─ failOnStartupError 时 await fiber（否则后台挂载 + 失败只记 error）
+                      │
+                      └── 'builtin'（层级/数组筛选，或官方桥解析不到）
+                           └─ spawn `npx -y rea-agents@6.4.0 mcp`（stdio，JSON-RPC 换行分帧）
+                                ├─ initialize / notifications/initialized
+                                ├─ tools/list（游标分页）→ 与 TIERS[tools] 求交集
+                                └─ ctx.tools.register(`rea__<name>`, { parameters, output.render, timeoutMs })
+
+两条桥都会（非阻塞）做一次环境自检 checkEnvironment()（默认开）
+  └─ spawn `npx -y rea-agents@6.4.0 doctor --format json --filter-output …`
+       ├─ 成功 → 投影为 Hopper/Ghidra/IDA 判定 → 写日志 + 供模式提示读取
+       └─ 失败 → 本地零依赖探测（env 变量 + 常见路径），标注来源
+
+模型调用某一工具（官方桥 mcp__rea__* / 内置桥 rea__*）
+  └─ REA 执行（静态 JS 分析无需引擎；原生深挖才需要 Hopper/Ghidra/IDA）
+       └─ 结果回传（内置桥只取 text；官方桥保留 structuredContent 与图片），isError 时抛错
 会话/预设卸载 或 HMR 重组
-  └─ ctx.effect 的 disposer → environmentProbe.abort() + 注销全部 rea__ 工具
-       + client.close()（SIGTERM→3s→SIGKILL）
+  └─ ctx.effect 的 disposer → environmentProbe.abort()
+       + 官方桥：fiber.dispose()；内置桥：注销全部 rea__ 工具 + client.close()（SIGTERM→3s→SIGKILL）
 ```
 
 手动入口（与插件内自检同源）：`npm run doctor`，见第 7 节。
@@ -141,16 +176,17 @@ profile boot
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | `false` 时不注册工具、不拉 REA 进程 |
-| `tools` | `'entry'` | `entry`(9 工具) / `navigate`(31) / `analyze`(17) / 显式名字数组 / `'all'` 或 `null`(170) |
+| `bridge` | `'auto'` | `auto` / `official` / `builtin`。`auto` 只在 `tools: all`/`null` 时选官方桥（官方桥无 allow-list，配层级会把 9 个工具放大到 170） |
+| `tools` | `'entry'`（**预设行预置 `all`**） | **只对内置桥生效**：`entry`(9) / `navigate`(**30**) / `analyze`(17) / 显式名字数组 / `'all'` 或 `null`(170)。官方桥下该值被忽略并告警 |
 | `version` | `'6.4.0'` | 固定 `rea-agents` 版本；工具名与 schema 与之绑定 |
-| `runner` | `'npx'` | 启动 REA 的包运行器 |
-| `env` | `{}` | 追加给 REA 子进程的环境变量（分析引擎就走这里：`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`，以及 `REA_ANALYSIS_PROVIDER` 等） |
+| `runner` | `'npx'` | 启动 REA 的包运行器（两条桥都用） |
+| `env` | `{}` | 追加给 REA 子进程的环境变量（分析引擎就走这里：`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`，以及 `REA_ANALYSIS_PROVIDER` 等）。**官方桥下继承环境已被清理**（丢弃 `*KEY*/*PASSWORD*/*SECRET*/*TOKEN*` 与 `DSH_*`），只有这里显式写的才会传下去 |
 | `toolCallTimeoutMs` | `300000` | 单次工具调用超时 |
-| `startupTimeoutMs` | `120000` | `npx` 下载 + 握手 + `tools/list` 的总预算 |
+| `startupTimeoutMs` | `120000` | 内置桥：`npx` 下载 + 握手 + `tools/list` 的总预算（官方桥用 SDK 自己的超时） |
 | `guidance` | `true` | 是否注册模式提示段 |
 | `checkEnvironment` | `true` | REA 连接成功后调用一次 REA 的 `doctor` 做只读环境自检；无引擎时写 warn 并把「环境自检」段并入模式提示，就绪时只记 info |
 | `environmentCheckTimeoutMs` | `60000` | 环境自检（含 `npx` 冷启动）的预算；超时只影响这条报告，不影响桥接 |
-| `failOnStartupError` | `false` | `true` 时 REA 起不来会拒绝激活该行；默认静默降级为"没有 REA 工具"（只在宿主日志留 error） |
+| `failOnStartupError` | `false` | `true` 时 REA 起不来会拒绝激活该行（官方桥下会 `await fiber`）；默认静默降级为"没有 REA 工具"（只在宿主日志留 error） |
 
 **分析引擎（可选，用户自备）**：Hopper / Ghidra / IDA 只影响原生二进制的伪代码、反编译与
 交叉引用；归档、安装包、JS/Electron、托管程序集分析不需要任何引擎。REA 读取的变量分别是
@@ -158,17 +194,31 @@ profile boot
 （上游 IDA MCP 注册 JSON）。`npm run doctor` 会按缺失项生成可直接粘贴的 `env` 片段；本包
 从不安装或升级引擎。
 
-**成本量化**（实测，REA 6.4.0）：`entry` = **9/170 工具，~98 kB schema ≈ 2.7 万 token/次**。
-`all` ≈ 1.9 MB ≈ 54 万 token。因为工具 schema 会进入**每一次**模型请求，所以层级选择
-是纯成本决策；深挖能力随时可用 REA CLI 拿到而不占上下文：
-`npx -y rea-agents@latest <command>`。
+**成本量化（实测，REA 6.4.0，量的是模型真正收到的 tool JSON）**：
+
+| 档位 | 工具数 | 模型侧字节 | ≈ token |
+|---|---|---|---|
+| 内置桥 `entry` | 9 | 11,242 B | ~2.8k |
+| 内置桥 `navigate` | 30 | 43,223 B | ~10.8k |
+| 内置桥 `analyze` | 17 | 61,597 B | ~15.4k |
+| 内置桥三层并集（显式数组） | 56 | 116,060 B | ~29k |
+| **官方桥（预设默认，全量）** | **170** | **432,845 B** | **~108k** |
+
+⚠ **旧文档（≤0.2.0）写的"`entry` ~98 kB ≈ 2.7 万 token / `all` ~1.9 MB ≈ 54 万 token"是错的**：
+那两个数量的是 REA 原始 `tools/list`（含 **output schema** 1,494,071 B 与 annotations），而
+output schema 从不进入模型请求。上游 `verification/schema-measurement.json` 是同一口径
+（`modelInputBytes: 436594` vs `outputSchemaBytes: 1494071`）。`syncTools` 的日志已改为
+模型可见字节。
+
+工具 schema 会进入**每一次**模型请求，所以档位是纯成本决策；深挖能力随时可用 REA CLI
+拿到而不占上下文：`npx -y rea-agents@latest <command>`。
 
 ---
 
 ## 7. 开发与验证
 
 ```bash
-npm test              # bridge + environment + preset + cordis-mount（后两者缺 DSH 时自动 skip）
+npm test              # bridge + environment + official-bridge + preset + cordis-mount（后两者缺 DSH 时自动 skip）
 npm run doctor        # 安装后自检：打印 Node / REA / Hopper / Ghidra / IDA 现状与安装指引（只读）
 npm run doctor -- --json --strict   # 机器可读；无可用引擎时退出码 1
 npm run test:live     # 连真 REA，报告注册数量与 schema 体积（需要 registry）
@@ -178,6 +228,9 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 `npm run doctor` 默认经配置的 runner 调用 `rea-agents@<version> doctor --format json`，失败时
 退回本地探测并**标注来源**；`--local` 直接走本地探测（离线、最快）。两者都不安装任何东西，
 需要引擎时按输出的 `env` 片段改 preset 行即可。
+
+`npm test` 当前 **35 例**：bridge 8 + environment 11 + official-bridge 9 + preset 4 +
+cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip）。
 
 **改动生效规则（本 profile 的硬约束）**：
 
@@ -193,13 +246,17 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 1. `ps -eo pid,ppid,cmd | grep -E 'rea-agents|\.bin/rea'` → 应看到 harness 的子进程
    `npm exec rea-agents@<version> mcp` 与其 node 子进程；没有则说明预设没挂载或 REA 没起来。
 2. `npm run session:log -- <日志> --tools` → 输出该会话**真实绑定**的预设与 REA 工具定义数。
-3. 宿主终端日志（`dsh web` 的 stdout）里应有
-   `dsh-rea: registered N/M REA tools (x%, ~yk schema bytes)`，其后是环境自检行：
-   无引擎时 `dsh-rea: environment check: no native analysis engine found (Hopper/Ghidra/IDA); …`，
-   就绪时 `dsh-rea: environment check: native analysis ready via <引擎>`；预设加载失败时的格式是
-   `<行 id> (<名字>): <detail>`，例如 `rea-bridge (dsh-reverse-mode): …`。
+3. 宿主终端日志（`dsh web` 的 stdout）里应依次有：
+   - `dsh-rea: bridge=official (…, serverName=rea, namespace=mcp__rea__) resolved from <路径>`
+     （或 `dsh-rea: bridge=builtin (zero-dependency stdio client, namespace=rea__)`）；
+   - 内置桥：`dsh-rea: registered N/M REA tools (x%, ~yk model-visible bytes)`；官方桥：`mcp-client` 自己的注册日志；
+   - 环境自检行：无引擎时 `dsh-rea: environment check: no native analysis engine found (Hopper/Ghidra/IDA); …`，
+     就绪时 `dsh-rea: environment check: native analysis ready via <引擎>`；
+     预设加载失败时的格式是 `<行 id> (<名字>): <detail>`，例如 `rea-bridge (dsh-reverse-mode): …`。
 4. `npm run doctor` 的结论应与第 3 条一致（同一份 REA `doctor` 输出）；`standard` 会话不会
-   出现该行，因为它根本不挂载本插件。
+   出现这些行，因为它根本不挂载本插件。
+5. 看到 `bridge=builtin` 但配置写的是 `official` / `auto`+`all` → 说明官方桥没解析到，
+   日志里会先有一条 `bridge=official was requested but @deepseek-ai/dsh-mcp-client is not resolvable`。
 
 ---
 
@@ -216,6 +273,8 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 | 分析引擎 | **未安装** Hopper / Ghidra / IDA；`JAVA_HOME=~/.local/jdk-21.0.2` 已就绪（Ghidra 12.1.x 的前置条件） |
 | 网络 | 需要 `https_proxy` 才能访问 npm registry / GitHub（本机指向本地代理） |
 | REA npx 缓存 | 已有 `rea-agents@6.4.0`，`~/.npm/_npx/*/node_modules/.bin/rea` |
+| 官方桥（0.3.0 起默认） | `@deepseek-ai/dsh-mcp-client@0.2.0-rc.2`；`~/.dsh/profiles/node_modules/@deepseek-ai/*` 是**指向 DSH 安装目录的符号链接**，所以 `createRequire('~/.dsh/profiles/noop.js')` 解析到的是 `<dsh>/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js`（宿主那一份）；其 `inject` 只有 `tools`，所以在预设 scope 内挂载安全 |
+| git / gh | WSL 无 `gh`，Windows 侧有 `C:\Program Files\GitHub CLI\gh.exe`（2.97.0，已登录 `xingxue-ux`；含 `workflow` scope） |
 | 仓库工作副本 | Windows E: 盘，WSL 挂载点 `/mnt/e` 下，**路径含空格**（引用时要加引号）。该文件系统是 drvfs：所有文件权限都是 777，git 里务必先 `core.fileMode false` |
 
 ---
@@ -265,8 +324,20 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
     - 第 9.2 条与第 13 节所说的"跟上游一致"只能理解为**与本 fork 的 v0.1 基线一致**；
     - `lib/index.js` 的 `logger` 注入与 `dispose` no-op 两处，**上游 v0.2 已随重写消失**，
       没有必要再向上游提 issue（v0.1 时代的代码已不再被 master 使用）；
-    - 若要真正跟上上游，等于放弃"层级筛选省 token"这一本 fork 的核心价值（entry 9 工具
-      ~2.7 万 token vs 全量 ~54 万 token），属于产品决策，见第 13 节。
+    - 若要真正跟上上游，等于放弃"层级筛选省 token"这一本 fork 的核心价值
+      （实测 `entry` ~2.8k token vs 全量 ~108k token），属于产品决策，见第 13 节。
+14. **官方桥靠运行时解析，依赖 `~/.dsh` 布局**：`lib/official-bridge.js` 用
+    `createRequire` 锚定 `DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`，再 `import` 绝对
+    路径。这不是 DSH 打包规范的正解（正解是声明 `peerDependencies` + profile 真安装，代价是
+    放弃 `link:` 就地编辑）。若 DSH 改了目录约定、或 profile 不在 `~/.dsh` 下，会解析失败 →
+    回退内置桥（日志有 warn），**不会**让预设挂不上。但它也意味着"官方桥可用性"不可保证。
+15. **官方桥下无法筛选**：`tools` 被忽略（告警），注册 REA 声明的全部 ~170 个工具
+    （~432.8 kB ≈ 10.8 万 token/次请求）。另外 stdio 传输会**先起 probe 进程再起 serve 进程**，
+    用 `npx` 就是**两次冷启动**；`failOnStartupError: true` 时 `apply` 会 `await` 首次连接，
+    预设激活因此变慢（默认 false，后台挂载、失败只记 error）。
+16. **双桥维护成本**：内置桥（`lib/mcp-stdio.js` + `catalog.js` + 层级筛选）与官方桥路径都在，
+    改动 `apply()` 要同时考虑两条路；官方桥的 Config/行为随 DSH 升级可能变，而内置桥是我们
+    自己的代码、不受影响。第 13 节列了"是否收敛到单桥"的选项。
 
 ---
 
@@ -287,6 +358,13 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 - [x] "个人路径 / 凭据"扫描通过（见第 12 节命令，输出为空）
 - [x] **0.2.0 安装后环境自检**：`lib/environment.js` + `scripts/doctor.mjs` + 连接后自动自检
       + 模式提示附加段 + `test/environment.test.mjs`（11 例离线）；`npm test` 全绿。
+- [x] **0.3.0 官方桥（路 1）**：`lib/official-bridge.js`（多锚点运行时解析 + `chooseBridge` 策略）
+      + `lib/index.js` 双桥分支（官方桥在预设 scope 内 `ctx.plugin`，内置桥保留筛选）
+      + `guidance.js` 跟随实际前缀 + `test/official-bridge.test.mjs`（9 例）与 cordis-mount 的
+      官方桥真实挂载用例；预设行改为 `bridge: official` + `tools: all`。
+      真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
+- [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
+      模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
 
 **建仓 + 推送：已完成（2026-10-13）**
 
@@ -377,6 +455,20 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
 - `npm run doctor -- --local` → `source: local-probe`、`nativeAnalysis: false`、三引擎
   `available/configured` 均为 false；与 doctor 结论一致。
 - `npm test` → bridge 8 例、environment 11 例、preset 4 例、cordis-mount 2 例，全绿。
+
+**0.3.0 官方桥（本机实测，2026-10-13）**
+
+- 解析：`loadOfficialBridge()` → `@deepseek-ai/dsh-mcp-client@0.2.0-rc.2`，绝对路径
+  `~/.nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js`
+  （即宿主那一份；`~/.dsh/profiles/node_modules/@deepseek-ai/*` 是指向它的符号链接）。
+- 离线（CI 可跑）：`test/cordis-mount.test.mjs` 用真实 cordis + 假 REA server 挂载官方桥 →
+  注册 `mcp__rea__open_binary` / `mcp__rea__binary_overview` / `mcp__rea__list_procedures`
+  （导航层也在，证明无 allow-list）；`fiber.dispose()` 后注册表归零。
+- 真机（REA 6.4.0，`npx` 拉起，非假 server）：在真实 cordis 预设 scope 内注册 **170** 个工具，
+  全部 `mcp__rea__` 前缀；模型可见 **432,845 B ≈ 10.8 万 token**；`dispose` 后归零，
+  `ps` 无残留 REA 子进程（只剩 harness 自己那个 4 小时前起的）。
+- 成本交叉验证：与上游 `verification/schema-measurement.json` 的 `modelInputBytes: 436594`
+  吻合；上游的 `outputSchemaBytes: 1494071` 证实旧文档 1.9 MB/54 万是把 output schema 算成了输入。
 
 ---
 
@@ -470,13 +562,28 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
 
 **新出现的决策项（来自第 9.13 条的上游换代）**
 
-8. **是否跟进上游 v0.2？** 上游 v0.2 用官方 MCP 桥挂**全量 170 工具**（`mcp__rea__`），
-   取消了层级筛选。跟进 = 放弃本 fork 的核心价值（`entry` 9 工具 ~2.7 万 token/次 vs
-   全量 ~54 万 token/次），但也换来官方桥的分页/取消/生命周期与上游 skill。
-   目前**不跟进**（0.2.0 保持 v0.1 形态 + 自研零依赖桥）；若将来要做，建议并列为**新预设**
-   （如"逆向模式（全量）"），而不是替换现有预设，这样两种成本档位都保留。
+8. **是否跟进上游 v0.2？（0.3.0 已部分落地）** 上游 v0.2 用官方 MCP 桥挂**全量 170 工具**
+   （`mcp__rea__`），取消了层级筛选。0.3.0 采纳的是**路 1**：官方桥（解析不到回退内置桥）
+   + 预设 scope 内挂载 + 预设默认 `tools: all`。也就是说**能力面与上游一致了，但保留了上游
+   没有的"只有逆向模式付费"**。成本按实测更正为 `entry` ~2.8k token/次 vs 全量 ~108k token/次
+   （不是旧文档写的 2.7 万 vs 54 万）。
+
+   **仍未采纳的两种上游形态**（保持现状，除非有需求）：
+   - 路 2（`peerDependencies` + profile 真安装，去掉运行时解析 workaround）——更正统，
+     代价是放弃 `link:` 就地编辑；见第 9.14 条。
+   - 注册上游 `reverse-engineer-anything` skill（上游用 `ctx.skills.register`）——本 fork 用
+     自己的 `systemPrompt` 段代替，理由见下条。
+
+9. **是否收敛到单桥？** 现在两条桥都在维护（第 9.16 条）。可选：
+   - 只留官方桥 → 失去层级筛选与"零依赖"卖点（`catalog.js` / `mcp-stdio.js` 可删）；
+   - 只留内置桥 → 失去官方桥的健壮性、env 清理与 canonical 输出；
+   - 现状（双桥 + `auto`）→ 成本档位与健壮性都要，代价是双路径维护。
+   目前**保持双桥**，因为 `auto` 的默认（有筛选就走内置桥）正是这个 fork 的差异化部分。
 
 **仍待办（需要外部条件，非设计问题）**
 
-- Windows / macOS 上验证 `npm run doctor`（`resolveRunner` 已处理 `npx.cmd`，但未实测）。
+- Windows / macOS 上验证 `npm run doctor`（`resolveRunner` 已处理 `npx.cmd`，但未实测），
+  以及官方桥在那两个平台上的运行时解析（锚点同样是 `~/.dsh`）。
+- 若要让"官方桥"长期成立，评估迁到路 2（peerDependencies + 真安装），或在上游 DSH
+  提供"从宿主解析随包"的正式 API 后替换掉 `createRequire` workaround。
 - 若要发布到 npm：去掉 `private`、复核 `files`、确认 `engines` 与 REA 的 Node 范围一致。
