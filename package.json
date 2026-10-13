@@ -1,0 +1,50 @@
+{
+  "name": "dsh-reverse-mode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reverse-engineering agent preset for DeepSeek Harness: a REA (rea-agents) MCP bridge mounted only by the 逆向模式 preset",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/staralsnow/dsh-reverse-mode.git"
+  },
+  "homepage": "https://github.com/staralsnow/dsh-reverse-mode#readme",
+  "bugs": {
+    "url": "https://github.com/staralsnow/dsh-reverse-mode/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "presets",
+    "README.md",
+    "CHANGELOG.md",
+    "NOTICE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/bridge.test.mjs && node test/preset.test.mjs && node test/cordis-mount.test.mjs",
+    "test:live": "DSH_REVERSE_MODE_LIVE=1 node test/live-rea.test.mjs",
+    "session:log": "node test/read-session-log.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "agent-preset",
+    "reverse-engineering",
+    "mcp",
+    "rea"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./presets/reverse.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
+  }
+}

@@ -1,0 +1,15 @@
+# Dependencies and build output
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local artifacts produced while checking a live DSH profile
+*.log
+.scratch/

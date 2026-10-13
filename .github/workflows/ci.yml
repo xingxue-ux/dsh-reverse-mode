@@ -1,0 +1,34 @@
+# Offline checks only: the suite needs no network and no analysis engine.
+#
+# `test/bridge.test.mjs` runs fully everywhere (it spawns a fake REA server).
+# `test/preset.test.mjs` and `test/cordis-mount.test.mjs` need a DSH
+# installation to compare against / to load cordis from; on a machine without
+# one they print `skip:` and exit 0, which is deliberate so CI stays green on a
+# plain runner.
+#
+# Live REA (`npm run test:live`) is intentionally not part of CI: it downloads
+# `rea-agents` and would make CI depend on the npm registry.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax check every module
+        run: |
+          for file in lib/*.js test/*.mjs test/*.js; do node --check "$file"; done
+      - name: Offline test suite
+        run: npm test
