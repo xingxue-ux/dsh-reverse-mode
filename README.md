@@ -48,14 +48,20 @@ config:
 
 ## 安装
 
-把本仓库链接进 profile（把路径换成你的实际仓库目录）：
+已发布到 npm：
+
+```bash
+dsh plugin --profile web add dsh-reverse-mode
+```
+
+开发时也可以从源码以 `link:` 方式安装（改完直接生效，方便就地编辑）：
 
 ```bash
 git clone https://github.com/xingxue-ux/dsh-reverse-mode.git
 dsh plugin --profile web add 'link:/absolute/path/to/dsh-reverse-mode'
 ```
 
-插件管理器会把声明了 `dsh.bundle` 的包自动选中为 profile bundle，其 `presets/reverse.patch.yml` 随即在启动时 `insert` 出 `preset-reverse-engineering` 声明。也可以在 Web 侧边栏的 **Plugins** 页里安装同一个本地路径。
+插件管理器会把声明了 `dsh.bundle` 的包自动选中为 profile bundle，其 `presets/reverse.patch.yml` 随即在启动时 `insert` 出 `preset-reverse-engineering` 声明。也可以在 Web 侧边栏的 **Plugins** 页里安装同一个包名或本地路径。
 
 安装后：重启或等 HMR 重载 → **新建**会话 → 在预设选择里选「逆向模式」。
 
