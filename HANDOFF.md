@@ -268,12 +268,12 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
       无 `node_modules`；drvfs 上所有文件权限都是 777，关闭 fileMode 后不会污染历史）
 - [x] 首发提交（`d5fcfe4`）的作者是 `staralsnow`（上一轮的本地身份）；**0.2.0 起本仓库
       本地 git 身份改为仓库 owner `xingxue-ux`**（`215101529+xingxue-ux@users.noreply.github.com`）。
-      首发提交未改写，历史里保留原作者；如需全库统一，可在未推送前 `git rebase` 重写。
+      首发提交未改写，历史里保留原作者；如需全库统一，可 `git rebase` 重写（推送后需 force-push）。
 - [x] "个人路径 / 凭据"扫描通过（见第 12 节命令，输出为空）
 - [x] **0.2.0 安装后环境自检**：`lib/environment.js` + `scripts/doctor.mjs` + 连接后自动自检
       + 模式提示附加段 + `test/environment.test.mjs`（11 例离线）；`npm test` 全绿。
 
-**建仓 + 推送：gh CLI 已找到（Windows 侧），本次已执行**
+**建仓 + 推送：已完成（2026-10-13）**
 
 本机 gh 不在 WSL 的 `PATH` 里，而在 Windows 侧：
 
@@ -283,12 +283,32 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
 ```
 
 该账号没有 org，`staralsnow` 是另一个用户、当前 token 无法在其名下建仓，所以仓库落在
-`xingxue-ux/dsh-reverse-mode`（已在 `package.json` / `README.md` 同步）。推送方式见第 12 节。
+**`xingxue-ux/dsh-reverse-mode`（PUBLIC，default `main`）**，已在 `package.json` /
+`README.md` 同步。实际结果：
+
+- 推送：`main` → `d64da40`（含 `d5fcfe4` + `d64da40` 两个提交），本地 `main` 已跟踪 `origin/main`
+- CI：run [`38345379722`](https://github.com/xingxue-ux/dsh-reverse-mode/actions/runs/38345379722)
+  = **completed/success**（node 22.19 与 24 两个矩阵任务都跑完语法检查 + 离线用例）
+- 过程中的两个坑（已解决，供下次参考）：
+  1. **`workflow` scope**：gh 令牌原本只有 `gist, read:org, repo`，含
+     `.github/workflows/` 的提交会被 GitHub 拒绝，报 `refusing to allow an OAuth App to
+     create or update workflow`。解决：`"$GH" auth refresh -h github.com -s workflow`
+     （设备码流程，需浏览器确认）。
+  2. **代理中断**：授权令牌交换时报 `Post https://github.com/login/oauth/access_token:
+     unexpected EOF`，当时 `127.0.0.1:7890` 在监听但上游超时；恢复网络后重试即成功。
+     另外**不要**试图用 Windows 的 GCM（`credential.helper=manager`）绕过 scope：会弹交互式
+     凭据窗口并挂住（已清理过 6 个孤儿进程）；用 `git -c credential.helper= -c
+     'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' push`
+     配合 `gh auth token` 更可靠。
 
 - [ ] 决定是否在 `LICENSE` 追加本 fork 的版权行（当前保留上游 MIT 原文，
       `NOTICE.md` 已写清溯源；MIT 只要求保留原版权声明）
 - [ ] （可选）`package.json` 加 `author`；若要发 npm，去掉 `private`、复核 `files`
-- [ ] 推送后在 GitHub 上确认：Actions 里的 CI 变绿（离线用例；需要 DSH 的两个会 skip）
+- [x] 推送后确认：Actions 里的 CI **变绿**（run `38345379722`；离线用例全过，
+      `preset` / `cordis-mount` 因 runner 上没有 DSH 而 skip，符合预期）
+- [ ] （可选）CI 里 `actions/checkout@v4` / `actions/setup-node@v4` 现在会报
+      "Node.js 20 is deprecated" 的 annotation（被强制跑在 Node 24）；功能无影响，
+      想消掉就把两者升到 `@v5`
 
 ---
 
