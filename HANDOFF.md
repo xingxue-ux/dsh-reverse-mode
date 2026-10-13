@@ -80,7 +80,7 @@
 |---|---|---|
 | `presets/reverse.patch.yml` | `insert` 出 `@deepseek-ai/dsh-agent-preset` 声明：`id: reverse-engineering`、`name: 逆向模式`、`order: 5`、`plugins: [standard 全套… , rea-bridge]` | 子列表是快照，见机制 2；`rea-bridge` 行的 `config` 是唯一常规调参点 |
 | `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、**桥选择（官方 / 内置）**、REA 启动、目录筛选、`*__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`apply` 现在是 **async**（要先 `await loadOfficialBridge()`），但提示段在 await **之前**注册；官方桥的 teardown 单独一个 effect |
-| `lib/official-bridge.js` | 运行时解析宿主自带的 `@deepseek-ai/dsh-mcp-client`：多锚点 `createRequire` + `chooseBridge()` 选择策略 + `isUnfiltered()` | **永不抛错**（解析失败返回 null → 回退内置桥）；`auto` 只在 `tools: all/null` 时选官方桥——否则会把 9 个工具放大到 170；锚点是 `DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`，改锚点先改 `test/official-bridge.test.mjs` |
+| `lib/official-bridge.js` | 运行时解析宿主自带的 `@deepseek-ai/dsh-mcp-client`：多锚点 `createRequire`、`chooseBridge()` 选择策略、`isUnfiltered()`、`harnessDshRoot()` / `sameInstallation()` 来源校验、`diagnostics` 输出 | **永不抛错**（任何失败都返回 null → 回退内置桥）；`auto` 只在 `tools: all/null` 时选官方桥——否则会把 9 个工具放大到 170；**来源校验在 `import()` 之前**，跨安装的包不会被执行；改锚点/校验先改 `test/official-bridge.test.mjs` |
 | `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
 | `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
 | `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(**30**) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`；见第 9.13 条）；只有内置桥会用它 |
@@ -134,7 +134,7 @@ profile boot
             └─ dsh-reverse-mode.apply()  ← 现在是 async
                  ├─ inject 等待 tools + systemPrompt 就绪
                  ├─ ctx.effect → systemPrompt.section('reverse-mode:policy')（在 await 之前）
-                 ├─ await loadOfficialBridge()  ← createRequire 锚点解析宿主那一份（可能为 null）
+                 ├─ await loadOfficialBridge()  ← 锚点解析 + 与运行中安装做来源校验（可能为 null）
                  └─ chooseBridge({bridge, tools, officialAvailable})
                       │
                       ├── 'official'（预设默认：bridge=official, tools=all）
@@ -229,7 +229,7 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 退回本地探测并**标注来源**；`--local` 直接走本地探测（离线、最快）。两者都不安装任何东西，
 需要引擎时按输出的 `env` 片段改 preset 行即可。
 
-`npm test` 当前 **35 例**：bridge 8 + environment 11 + official-bridge 9 + preset 4 +
+`npm test` 当前 **41 例**：bridge 10 + environment 11 + official-bridge 13 + preset 4 +
 cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip）。
 
 **改动生效规则（本 profile 的硬约束）**：
@@ -255,8 +255,10 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
      预设加载失败时的格式是 `<行 id> (<名字>): <detail>`，例如 `rea-bridge (dsh-reverse-mode): …`。
 4. `npm run doctor` 的结论应与第 3 条一致（同一份 REA `doctor` 输出）；`standard` 会话不会
    出现这些行，因为它根本不挂载本插件。
-5. 看到 `bridge=builtin` 但配置写的是 `official` / `auto`+`all` → 说明官方桥没解析到，
-   日志里会先有一条 `bridge=official was requested but @deepseek-ai/dsh-mcp-client is not resolvable`。
+5. 看到 `bridge=builtin` 但配置写的是 `official` / `auto`+`all` → 说明发生了降级，日志里必有一条
+   原因：解析/来源校验失败是
+   `bridge=official was requested but @deepseek-ai/dsh-mcp-client is not usable (<原因>); falling back…`；
+   挂载失败是 `official bridge could not start REA via "…": <error> — falling back to the built-in bridge`。
 
 ---
 
@@ -326,15 +328,22 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       没有必要再向上游提 issue（v0.1 时代的代码已不再被 master 使用）；
     - 若要真正跟上上游，等于放弃"层级筛选省 token"这一本 fork 的核心价值
       （实测 `entry` ~2.8k token vs 全量 ~108k token），属于产品决策，见第 13 节。
-14. **官方桥靠运行时解析，依赖 `~/.dsh` 布局**：`lib/official-bridge.js` 用
+14. **官方桥靠运行时解析，依赖 `~/.dsh` 布局（0.3.1 已加固）**：`lib/official-bridge.js` 用
     `createRequire` 锚定 `DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`，再 `import` 绝对
     路径。这不是 DSH 打包规范的正解（正解是声明 `peerDependencies` + profile 真安装，代价是
-    放弃 `link:` 就地编辑）。若 DSH 改了目录约定、或 profile 不在 `~/.dsh` 下，会解析失败 →
-    回退内置桥（日志有 warn），**不会**让预设挂不上。但它也意味着"官方桥可用性"不可保证。
+    放弃 `link:` 就地编辑）。0.3.1 起加了两道闸：
+    - **来源校验**：`harnessDshRoot()` 从 `realpath(process.argv[1])` 推导**正在运行的** DSH
+      包根，`sameInstallation()` 要求官方桥与之同一 `node_modules` 基线（npm 嵌套 / pnpm 共享
+      都通过；开发布局或无法推导时跳过）。检查在 `import()` **之前**，跨安装的包**不会被执行**；
+    - **挂载失败也回退**：官方桥固定收 `failOnStartupError: true`，我们 `await` 它；失败则释放
+      fiber 并用内置桥继续（日志 `falling back to the built-in bridge`）。
+    仍然存在的限制：**同一个 `node_modules` 基线下的两套 DSH 版本无法区分**（pnpm 场景），
+    但那种情况通常会以"挂载失败 → 回退"收尾；且"官方桥可用性"依然不可保证。
 15. **官方桥下无法筛选**：`tools` 被忽略（告警），注册 REA 声明的全部 ~170 个工具
-    （~432.8 kB ≈ 10.8 万 token/次请求）。另外 stdio 传输会**先起 probe 进程再起 serve 进程**，
-    用 `npx` 就是**两次冷启动**；`failOnStartupError: true` 时 `apply` 会 `await` 首次连接，
-    预设激活因此变慢（默认 false，后台挂载、失败只记 error）。
+    （~436 kB ≈ 10.9 万 token/次请求）。另外 stdio 传输会**先起 probe 进程再起 serve 进程**，
+    用 `npx` 就是**两次冷启动**；官方桥路径现在**总是 `await` 首次连接**（为了能检测失败并回退，
+    也为了不再出现"零工具却显示逆向模式"），所以预设激活会等 REA 起来或失败——这是 0.3.1 的
+    有意取舍。内置桥路径仍是非阻塞（`failOnStartupError: true` 时改为 `await`，让失败真正拒绝激活）。
 16. **双桥维护成本**：内置桥（`lib/mcp-stdio.js` + `catalog.js` + 层级筛选）与官方桥路径都在，
     改动 `apply()` 要同时考虑两条路；官方桥的 Config/行为随 DSH 升级可能变，而内置桥是我们
     自己的代码、不受影响。第 13 节列了"是否收敛到单桥"的选项。
@@ -365,6 +374,13 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
 - [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
       模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
+- [x] **0.3.1 官方桥硬化（A + C）**：
+      A = `harnessDshRoot()` / `sameInstallation()` —— 用 `realpath(process.argv[1])` 推导运行中
+      的 DSH 安装，要求官方桥与其同一 `node_modules` 基线，**且在 `import()` 之前判定**
+      （跨安装的包永不执行）；C = 官方桥激活失败时 `await` 到失败、释放 fiber、**自动改用内置桥**，
+      并给官方桥固定传 `failOnStartupError: true`（否则它连接失败也会"成功"）。
+      顺带修掉内置桥 `failOnStartupError: true` 只产生 unhandled rejection 的旧问题。
+      真机验证：真实安装被接受、外部伪造安装被拒；`test:live` 170 工具 / dispose 0 残留 / exit 0。
 
 **建仓 + 推送：已完成（2026-10-13）**
 
@@ -469,6 +485,21 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
   `ps` 无残留 REA 子进程（只剩 harness 自己那个 4 小时前起的）。
 - 成本交叉验证：与上游 `verification/schema-measurement.json` 的 `modelInputBytes: 436594`
   吻合；上游的 `outputSchemaBytes: 1494071` 证实旧文档 1.9 MB/54 万是把 output schema 算成了输入。
+
+**0.3.1 硬化（本机实测，2026-10-13）**
+
+- **A 来源校验**：把 `process.argv[1]` 伪装成真实入口
+  `~/.nvm/versions/node/v22.23.2/bin/dsh` 后，`harnessDshRoot()` 推导出
+  `…/lib/node_modules/@deepseek-ai/dsh`，真实官方桥**被接受**（0.2.0-rc.2）；随后把全部锚点
+  指向 `/tmp` 下的伪造安装 → **被拒绝**，`diagnostics` 给出
+  `resolved outside the running harness installation (…/lib/node_modules)`。
+- **A 不执行原则**：离线用例用一个"import 即写标记文件"的假包，跨安装时断言标记文件不存在
+  （已 import 的路径不可能满足），同安装时才被导入。
+- **C 回退**：离线用例让假官方桥的 `apply` 抛错 → 自动改用内置桥、工具前缀变回 `rea__`、
+  模式提示同步改回；另有 `failOnStartupError: true` + 死 runner 时 `apply` **真正 reject**
+  的用例（旧实现只会产生 unhandled rejection）。
+- `npm run test:live`（官方桥 + 真 REA，预设配置）：170 工具 / 436.6 kB 模型可见，
+  `after dispose: 0 tools remain`，退出码 **0**。
 
 ---
 

@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -129,7 +129,59 @@ function makeCtx() {
       on: (event, handler) => {
         if (event === 'dispose') disposers.push(handler)
       },
+      /**
+       * Minimal stand-in for cordis `ctx.plugin`: run the child plugin and
+       * return a fiber-like thenable with `dispose`. Enough for the official
+       * bridge path (which owns its own registrations).
+       */
+      plugin: (module, pluginConfig) => {
+        const child = {
+          logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+          tools: { register: (definition) => { registered.set(definition.name, definition); return () => registered.delete(definition.name) } },
+          systemPrompt: { getSectionOrder: () => 600, section: () => () => {} },
+          effect: (fn) => { disposers.push(fn() ?? (() => {})) },
+          on: () => {},
+          root: null,
+          fiber: null,
+          inject: [],
+          get: () => undefined,
+        }
+        const applyChild = typeof module === 'function' ? module : module.apply
+        const settled = Promise.resolve().then(() => applyChild(child, pluginConfig)).then(() => ({ dispose: () => {} }))
+        return Object.assign(settled, { dispose: () => {} })
+      },
     },
+  }
+}
+
+/**
+ * Fabricate a resolvable official bridge and point the resolver at it.
+ *
+ * `DSH_PROFILE_DIR` is the resolver's first anchor, so setting it makes
+ * `apply()` pick the fake package without touching the real harness packages.
+ *
+ * @param source - ESM source for the fake bridge's entry file.
+ * @returns a restore function for the environment variable.
+ */
+function useFakeOfficialBridge(source) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-official-'))
+  const packageDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh-mcp-client')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: '@deepseek-ai/dsh-mcp-client',
+      version: '0.0.0-fake',
+      type: 'module',
+      exports: { '.': './index.js', './package.json': './package.json' },
+    }),
+  )
+  writeFileSync(join(packageDir, 'index.js'), source)
+  const previous = process.env.DSH_PROFILE_DIR
+  process.env.DSH_PROFILE_DIR = dir
+  return () => {
+    if (previous === undefined) delete process.env.DSH_PROFILE_DIR
+    else process.env.DSH_PROFILE_DIR = previous
   }
 }
 
@@ -358,6 +410,59 @@ await test('a failing runner degrades to "no REA tools" unless configured otherw
   assert.equal(harness.registered.size, 0)
   assert.ok(harness.logs.error[0].includes('continuing without REA tools'))
   harness.dispose()
+})
+
+await test('failOnStartupError makes a dead runner reject activation', async () => {
+  const harness = makeCtx()
+  await assert.rejects(
+    apply(harness.ctx, {
+      runner: join(tmpdir(), 'definitely-not-a-runner'),
+      version: '0.0.0',
+      tools: 'entry',
+      bridge: 'builtin',
+      failOnStartupError: true,
+      startupTimeoutMs: 1_000,
+      checkEnvironment: false,
+    }),
+    (error) => /ENOENT|spawn|could not start/.test(String(error)),
+    'a detached throw inside a .catch would only be an unhandled rejection',
+  )
+  assert.equal(harness.registered.size, 0)
+  harness.dispose()
+})
+
+await test('a failing official bridge falls back to the built-in bridge', async () => {
+  const restore = useFakeOfficialBridge(
+    'export const name = "fake-official"\nexport const inject = ["tools"]\n' +
+      'export function apply() { throw new Error("official boom") }\n',
+  )
+  try {
+    const harness = makeCtx()
+    apply(harness.ctx, {
+      runner: makeNpxShim(),
+      version: '0.0.0',
+      tools: 'all',
+      bridge: 'official',
+      startupTimeoutMs: 15_000,
+      environmentCheckTimeoutMs: 5_000,
+    })
+    await waitFor(() => harness.registered.size > 0, 15_000, 'the built-in fallback tools')
+    const names = [...harness.registered.keys()]
+    assert.ok(
+      names.every((name) => name.startsWith('rea__')),
+      `the fallback must use the built-in bridge: ${names.join(', ')}`,
+    )
+    assert.ok(
+      harness.logs.warn.some(
+        (line) => line.includes('official boom') && line.includes('falling back to the built-in bridge'),
+      ),
+      harness.logs.warn.join(' | '),
+    )
+    assert.ok(!harness.sections[0].text().includes('mcp__rea__'), 'the prompt follows the bridge that mounted')
+    harness.dispose()
+  } finally {
+    restore()
+  }
 })
 
 process.stdout.write(failures === 0 ? '\nall tests passed\n' : `\n${String(failures)} test(s) failed\n`)

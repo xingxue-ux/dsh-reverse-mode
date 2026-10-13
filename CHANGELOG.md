@@ -3,6 +3,40 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-10-13
+
+收紧官方桥的两处失效路径：**只挂运行中那一份**，且**挂不起来就降级**而不是静默没工具。
+
+### Added
+
+- `harnessDshRoot()` / `sameInstallation()`（`lib/official-bridge.js`）：从
+  `realpath(process.argv[1])` 推导**正在运行的** DSH 包根，再要求解析到的官方桥与其处于同一个
+  `node_modules` 安装基线（npm 嵌套布局与 pnpm 共享布局都通过；开发布局/无法推导时跳过检查）。
+  检查在 `import()` **之前**执行，因此来历不明的模块**永远不会被执行**。
+- `loadOfficialBridge()` 新增 `diagnostics` 输出，`lib/index.js` 会把失败原因写进 warn
+  （`not usable (<原因>)`），而不是只说"不可解析"。
+
+### Fixed
+
+- **解析成功但挂载失败时不再静默留在"零工具"状态**：官方桥的 `fiber` 现在会被 `await`，
+  失败则先释放它，再**自动改用内置桥**（`lib/index.js`）。为此给官方桥传
+  `failOnStartupError: true` —— 它默认 `false` 时连接失败也会"成功激活但零工具"，
+  正是这条回退要消除的状态；本包自己的 `failOnStartupError` 策略在尝试之后再套用。
+- **内置桥的 `failOnStartupError: true` 真正生效**：原来在分离的 `.catch` 里 `throw`，
+  只会变成 unhandled rejection（Node 默认会崩）而不会让该行激活失败；现在改为 `await connect()`，
+  失败即拒绝激活。
+- 内置桥 teardown 现在在连接**之前**注册，激活失败也会清理已启动的子进程。
+
+### Verified
+
+- `npm test` 全绿（bridge 10 + environment 11 + official-bridge 13 + preset 4 + cordis-mount 3 = **41**）。
+- 新增离线用例：跨安装的官方包**不执行**（用标记文件断言）、真实安装的官方包通过 origin 检查、
+  官方桥激活失败后自动回退内置桥并改用 `rea__` 前缀、`failOnStartupError` 真正拒绝激活。
+- 真机：把 `process.argv[1]` 伪装成真实 harness 入口后，推导出
+  `…/lib/node_modules/@deepseek-ai/dsh`，真实官方桥被接受；把全部锚点指向外部伪造安装则被拒绝
+  （`resolved outside the running harness installation (…/lib/node_modules)`）。
+- `npm run test:live`（官方桥 + 真 REA）：170 工具 / 436.6 kB 模型可见，dispose 后 0 残留，退出码 0。
+
 ## [0.3.0] - 2026-10-13
 
 默认改用 harness 自带的官方 MCP 桥（解析不到时自动回退到内置桥），并公开实测成本。

@@ -1,6 +1,6 @@
 {
   "name": "dsh-reverse-mode",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Reverse-engineering agent preset for DeepSeek Harness: a REA (rea-agents) MCP bridge mounted only by the 逆向模式 preset",
   "license": "MIT",

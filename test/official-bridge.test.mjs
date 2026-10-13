@@ -14,17 +14,20 @@
 
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import {
   chooseBridge,
+  harnessDshRoot,
   isUnfiltered,
   loadOfficialBridge,
   officialBridgeAnchors,
   OFFICIAL_BRIDGE_NAMESPACE,
   OFFICIAL_BRIDGE_PACKAGE,
   OFFICIAL_BRIDGE_SERVER_NAME,
+  sameInstallation,
 } from '../lib/official-bridge.js'
 
 let failures = 0
@@ -175,6 +178,102 @@ await test('the host copy resolves on a machine with a shared DSH profile', asyn
   assert.equal(typeof loaded.version, 'string')
   assert.ok(loaded.entry.includes('dsh-mcp-client'), loaded.entry)
   process.stdout.write(`     resolved ${loaded.version} from ${loaded.entry}\n`)
+})
+
+// ---------------------------------------------------------------------------
+// Origin: the bridge must come from the installation that is running
+// ---------------------------------------------------------------------------
+
+await test('harnessDshRoot derives the running DSH package root', () => {
+  const realpath = () => '/opt/x/node_modules/@deepseek-ai/dsh/lib/bin.js'
+  assert.equal(harnessDshRoot({ argv1: '/usr/local/bin/dsh', realpath }), '/opt/x/node_modules/@deepseek-ai/dsh')
+  assert.equal(
+    harnessDshRoot({ argv1: '/test/script.mjs', realpath: () => '/srv/test/script.mjs' }),
+    null,
+    'a non-DSH entry point yields no root',
+  )
+  assert.equal(
+    harnessDshRoot({
+      argv1: '/usr/local/bin/dsh',
+      realpath: () => {
+        throw new Error('ENOENT')
+      },
+    }),
+    null,
+  )
+  assert.equal(harnessDshRoot({ argv1: undefined }), null)
+  assert.equal(harnessDshRoot({ argv1: '' }), null)
+})
+
+await test('sameInstallation accepts nested and shared node_modules layouts', () => {
+  const nested = '/opt/x/node_modules/@deepseek-ai/dsh'
+  assert.equal(
+    sameInstallation(
+      '/opt/x/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js',
+      nested,
+    ).ok,
+    true,
+    'npm layout: nested inside the DSH package',
+  )
+  assert.equal(
+    sameInstallation('/opt/x/node_modules/.pnpm/@deepseek-ai+dsh-mcp-client@1/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js', nested).ok,
+    true,
+    'pnpm layout: same node_modules base',
+  )
+  const foreign = sameInstallation('/opt/other/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js', nested)
+  assert.equal(foreign.ok, false, 'a different installation is rejected')
+  assert.match(foreign.reason, /outside/)
+  assert.equal(sameInstallation('/anything', null).ok, true, 'unknown harness root skips the check')
+  assert.equal(
+    sameInstallation('/repo/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js', '/repo/packages/dsh').ok,
+    true,
+    'a development layout without node_modules skips the check',
+  )
+})
+
+await test('a bridge from another installation is never imported', async () => {
+  const marker = join(mkdtempSync(join(tmpdir(), 'dsh-origin-marker-')), 'executed')
+  const source =
+    `import { writeFileSync } from 'node:fs'\n` +
+    `writeFileSync(${JSON.stringify(marker)}, 'x')\n` +
+    'export function apply() {}\n'
+  const anchor = makeAnchorTree(source)
+
+  const diagnostics = []
+  const rejected = await loadOfficialBridge({
+    anchors: [anchor],
+    harnessRoot: '/opt/other/node_modules/@deepseek-ai/dsh',
+    diagnostics,
+  })
+  assert.equal(rejected, null, 'a foreign installation is not accepted')
+  assert.equal(existsSync(marker), false, 'the foreign module was never executed')
+  assert.match(diagnostics[0].reason, /outside/)
+
+  // The same tree is accepted when it belongs to the running installation.
+  const accepted = await loadOfficialBridge({
+    anchors: [anchor],
+    harnessRoot: join(dirname(anchor), 'node_modules', '@deepseek-ai', 'dsh'),
+  })
+  assert.ok(accepted !== null, 'the matching installation is accepted')
+  assert.equal(existsSync(marker), true, 'and then it is imported')
+})
+
+await test('the real host copy passes the origin check of the real install', async () => {
+  const shared = join(homedir(), '.dsh', 'profiles', 'node_modules', ...OFFICIAL_BRIDGE_PACKAGE.split('/'))
+  if (!existsSync(shared)) {
+    process.stdout.write('     (skip: no shared DSH node_modules on this machine)\n')
+    return
+  }
+  let dshRoot
+  try {
+    dshRoot = dirname(createRequire(join(homedir(), '.dsh', 'profiles', 'noop.js')).resolve('@deepseek-ai/dsh/package.json'))
+  } catch {
+    process.stdout.write('     (skip: cannot resolve @deepseek-ai/dsh/package.json)\n')
+    return
+  }
+  const loaded = await loadOfficialBridge({ harnessRoot: dshRoot })
+  assert.ok(loaded !== null, `the host bridge must be inside ${dshRoot}`)
+  assert.ok(loaded.entry.startsWith(dshRoot), loaded.entry)
 })
 
 process.stdout.write(failures === 0 ? '\nall tests passed\n' : `\n${String(failures)} test(s) failed\n`)

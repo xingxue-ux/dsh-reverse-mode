@@ -132,7 +132,8 @@ node test/read-session-log.mjs ~/.dsh/sessions/<workspace>/<session-id>/session.
 ## 注意事项
 
 - **原生分析需要外部引擎**：Hopper / Ghidra / IDA 需自行安装并持有合法授权；静态 JavaScript/Electron 分析不需要引擎。
-- **官方桥的解析锚点依赖 `~/.dsh` 布局**：`DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles` 逐个尝试；都失败时退回内置桥并写 warn。若你看到 `bridge=builtin`，说明这台机器没解析到官方桥（行为仍然完整，只是少了官方桥的健壮性与 env 清理）。
+- **官方桥必须来自"正在运行的这一份"**：解析锚点（`DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`）逐个尝试后，还会把结果与 `realpath(process.argv[1])` 推导出的运行中 DSH 安装做一致性校验；**不在同一安装里的包会被跳过且永不执行**（防"陈旧的 `~/.dsh/profiles` 指向另一套 DSH"）。检查在 `import()` 之前完成。
+- **降级是显式的，且不会静默断供**：官方桥解析不到、或解析到却启动失败（版本不匹配、Config 变化等），都会写一条 warn 并自动改用内置桥；失败原因会一并打印（`not usable (<原因>)`）。因此看到 `bridge=builtin` 就说明发生了降级——功能仍在，少的是官方桥的健壮性与 env 清理。注意官方桥路径会 `await` 首次连接（上游同款），所以预设激活会等 REA 起来或失败，而不是后台挂载后静默留空。
 - **官方桥下 `tools` 不生效**：它会注册 REA 声明的全部 ~170 个工具（~436 kB ≈ 10.9 万 token/次）。要低成本的层级筛选，必须 `bridge: builtin`。
 - **官方桥会用清理后的环境**：名字匹配 `KEY/PASSWORD/SECRET/TOKEN` 的继承变量与 `DSH_*` 会被丢弃，**只有**你在 `env` 里显式写下的变量会传给 REA；引擎变量（`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`）不属于被清理的模式，照常生效。
 - 预设的子插件列表是**完全替换式**的：本文件的列表是标准预设的快照，DSH 升级后若标准预设新增插件，需要手动同步过来。
