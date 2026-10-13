@@ -1,5 +1,8 @@
 # dsh-reverse-mode
 
+[![npm version](https://img.shields.io/npm/v/dsh-reverse-mode.svg)](https://www.npmjs.com/package/dsh-reverse-mode)
+[![license](https://img.shields.io/npm/l/dsh-reverse-mode.svg)](LICENSE)
+
 DeepSeek Harness 的 **「逆向模式」agent 预设**：在标准工具箱之上挂载 [REA](https://github.com/morluto/rea)（`rea-agents`）的逆向工程能力，并且**只在选择该预设的会话里挂载**。
 
 本包是 [`dsh-rea`](https://github.com/JeremyWangCY/dsh-rea)（MIT，作者 JeremyWangCY）的二次开发分支：把它从"全局宿主插件"改造成 agent preset 子插件，并优先复用 harness 自带的官方 MCP 桥。

@@ -381,6 +381,15 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       并给官方桥固定传 `failOnStartupError: true`（否则它连接失败也会"成功"）。
       顺带修掉内置桥 `failOnStartupError: true` 只产生 unhandled rejection 的旧问题。
       真机验证：真实安装被接受、外部伪造安装被拒；`test:live` 170 工具 / dispose 0 残留 / exit 0。
+- [x] **npm 首发（0.3.1）**：去掉 `private`，README 改为 npm 优先
+      （`dsh plugin --profile web add dsh-reverse-mode`），发布
+      `dsh-reverse-mode@0.3.1`（13 files / 44.1 kB / shasum
+      `d8ded8330539f58cb5b6fc8e243d3b52ce1b1759`，已从 registry 重新下载核对）；
+      git tag `v0.3.1` 已推。发布命令见第 12 节。
+- [x] **真实会话验证（`session-5be4cddb`）**：注册 170 个 `mcp__rea__*`，实际调用
+      `mcp__rea__open_binary` / `mcp__rea__inspect_pe_resources`（一次 `resource_constraint`
+      后带 `max_file_bytes` 重试成功）/ `mcp__rea__binary_session`，`system/message` 含
+      「环境自检」缺失引擎段。
 
 **建仓 + 推送：已完成（2026-10-13）**
 
@@ -569,6 +578,21 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
 
 # 推送后确认 CI
 "$GH" run list --repo xingxue-ux/dsh-reverse-mode
+
+# --- npm 发布（0.3.1 已执行；token 用完即弃，别写进仓库或 ~/.npmrc） ---
+# npm whoami 显示 xingxue-ux；发布用「临时 userconfig」，避免污染全局配置：
+TMPD=$(mktemp -d); chmod 700 "$TMPD"
+printf 'registry=https://registry.npmjs.org/\nproxy=http://127.0.0.1:7890\nhttps-proxy=http://127.0.0.1:7890\n//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$TMPD/npmrc"
+NPM_CONFIG_USERCONFIG="$TMPD/npmrc" npm publish --registry https://registry.npmjs.org/
+rm -rf "$TMPD"
+# 注意：npm 的"being processed"要点时间；立刻查 registry 可能只看到旧版本，别误判失败。
+# 校验发布结果（绕开 npm packument 缓存与镜像缓存，直接拉 tarball）：
+#   curl -x http://127.0.0.1:7890 -o /tmp/x.tgz \
+#     https://registry.npmjs.org/dsh-reverse-mode/-/dsh-reverse-mode-0.3.1.tgz
+#   shasum /tmp/x.tgz   # 应等于 d8ded8330539f58cb5b6fc8e243d3b52ce1b1759
+# 打 tag：git tag -a v0.3.1 -m "..." && git push origin main --tags
+# 另：本机 ~/.camofox/browser-server 的 `npm start` 循环会不断刷 ~/.npm/_logs（只留 10 个），
+# 发布失败时先复制日志再排查，否则会被轮转掉。
 ```
 
 ---
@@ -617,4 +641,10 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
   以及官方桥在那两个平台上的运行时解析（锚点同样是 `~/.dsh`）。
 - 若要让"官方桥"长期成立，评估迁到路 2（peerDependencies + 真安装），或在上游 DSH
   提供"从宿主解析随包"的正式 API 后替换掉 `createRequire` workaround。
-- 若要发布到 npm：去掉 `private`、复核 `files`、确认 `engines` 与 REA 的 Node 范围一致。
+- **npm 后续**：已发布 0.3.1，但仍可做两件事 ——
+  (a) 用 GitHub Actions + npm Trusted Publisher 做 `--provenance` 发布，替掉本地 token；
+  (b) registry 上还有一个同账号的 `0.0.0-stage`（338 B 占位版本，比 0.3.1 早一分钟），
+  `dist-tags.latest` 已正确指向 0.3.1，但若想清掉可执行
+  `npm unpublish dsh-reverse-mode@0.0.0-stage`（72 小时内、且不是唯一版本，允许）。
+- **安全**：本次发布用的 npm token 出现在对话记录里，建议用完后在
+  npmjs.com → Access Tokens 里 **revoke 并重新签发**。

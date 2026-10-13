@@ -37,6 +37,16 @@
   （`resolved outside the running harness installation (…/lib/node_modules)`）。
 - `npm run test:live`（官方桥 + 真 REA）：170 工具 / 436.6 kB 模型可见，dispose 后 0 残留，退出码 0。
 
+### Published
+
+- **npm 首发**：`dsh-reverse-mode@0.3.1` —— 13 files / 44.1 kB，
+  shasum `d8ded8330539f58cb5b6fc8e243d3b52ce1b1759`（已从 registry 重新下载核对一致），
+  `dist-tags.latest = 0.3.1`；安装：`dsh plugin --profile web add dsh-reverse-mode`。
+- 真实会话验证（`session-5be4cddb`，绑定逆向模式）：请求里注册 **170 个 `mcp__rea__*`**；
+  实际调用 `mcp__rea__open_binary`、`mcp__rea__inspect_pe_resources`（先因 64 MiB 上限返回
+  `resource_constraint`，模型带 `max_file_bytes` 重试成功并拿到 `evidence_id`）、
+  `mcp__rea__binary_session`；`system/message` 含「环境自检」缺失引擎提示段。
+
 ## [0.3.0] - 2026-10-13
 
 默认改用 harness 自带的官方 MCP 桥（解析不到时自动回退到内置桥），并公开实测成本。
