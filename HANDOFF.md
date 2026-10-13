@@ -70,7 +70,7 @@
 | `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、REA 启动、目录筛选、`rea__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`checkEnvironment` 自检挂在 `connect()` 成功之后，缺失引擎只 warn |
 | `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
 | `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
-| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(31) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游逐字复制**，改它等于偏离上游；见第 9 节"层级语义"（已决定保持替换语义） |
+| `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(31) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`，并改用官方桥 + 全量 170 工具；见第 9.13 条）；改它等于偏离本 fork 的基线 |
 | `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第二参数是环境报告，仅无引擎时追加「环境自检」段 | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段 |
 | `lib/mcp-stdio.js` | 零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 为什么不用 `@modelcontextprotocol/sdk`：见第 4 节；`clientVersion` 由 `index.js` 从 `package.json` 注入 |
 | `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + 双模 `npx` shim（MCP / `doctor`），覆盖配置校验、筛选、渲染、超时、取消、启动失败降级、环境自检的日志与提示段 | 改 `apply()` 行为后先让这里绿；不需要自检的用例显式 `checkEnvironment: false` |
@@ -224,9 +224,10 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 
 1. **`standard` 预设漂移**：升级 DSH 后需手工把 `standard` 新增行同步进
    `presets/reverse.patch.yml`（`npm test` 的 preset 用例会提醒）。
-2. **层级语义（已决定：与上游一致）**：`resolveAllowed()` 直接取 `TIERS[selector]`，
-   `navigate` / `analyze` 是**替换**而非累加；`lib/catalog.js` 的注释仍沿用上游 "Adds …"
-   的累加表述。经确认**先跟上游 `dsh-rea` 保持一致**：不改语义、不重写 `catalog.js`。
+2. **层级语义（已决定：与本 fork 基线一致）**：`resolveAllowed()` 直接取 `TIERS[selector]`，
+   `navigate` / `analyze` 是**替换**而非累加；`lib/catalog.js` 的注释仍沿用上游 v0.1 的
+   "Adds …" 累加表述。经确认**先不改**：保持替换语义、不重写 `catalog.js`。
+   注意这里的"上游"指 fork 时的 **v0.1**：上游 v0.2 已删除层级概念（见第 9.13 条）。
    若以后要改成累加，必须在 CHANGELOG 记录行为变更并同步修正本文件与 README。
 3. **REA 版本升级即可能改工具名**：未知名字只 warn 并跳过，不会崩；升级后请跑
    `npm run test:live` 核对数量，并复核 `tools` 清单。
@@ -255,6 +256,17 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 12. **自检的额外子进程成本**：每次预设挂载（每个逆向会话、每次 HMR 重组）会在 REA 连接
     成功后再拉起一次短的 `npx … doctor`。它复用 npx 缓存、只读、不装东西，并由
     `checkEnvironment: false` 关闭；teardown 会 `AbortController.abort()` 掉未完成的探测。
+13. **⚠ 上游已换代（v0.2.0），本 fork 停留在 v0.1 形态**：上游 `master` 现在
+    （2026-10-13 核对）是 `dsh-rea@0.2.0`，它**移除了 tier 目录与筛选桥**：
+    `lib/catalog.js` 只剩 5 行 `legacy v0.1 tier catalog removed` 注释，
+    `lib/index.js` 改为官方 `@deepseek-ai/dsh-mcp-client` + 全量 **170 工具**、
+    命名空间 `mcp__rea__`、`inject = ['tools', 'skills']`，并把 `rea-agents` 作为精确依赖。
+    因此：
+    - 第 9.2 条与第 13 节所说的"跟上游一致"只能理解为**与本 fork 的 v0.1 基线一致**；
+    - `lib/index.js` 的 `logger` 注入与 `dispose` no-op 两处，**上游 v0.2 已随重写消失**，
+      没有必要再向上游提 issue（v0.1 时代的代码已不再被 master 使用）；
+    - 若要真正跟上上游，等于放弃"层级筛选省 token"这一本 fork 的核心价值（entry 9 工具
+      ~2.7 万 token vs 全量 ~54 万 token），属于产品决策，见第 13 节。
 
 ---
 
@@ -266,9 +278,11 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 - [x] `README.md` 安装段的 clone 地址已填同一仓库
 - [x] `git init -b main` + `git config core.fileMode false` + 首发提交 `d5fcfe4`（19 个文件，
       无 `node_modules`；drvfs 上所有文件权限都是 777，关闭 fileMode 后不会污染历史）
-- [x] 首发提交（`d5fcfe4`）的作者是 `staralsnow`（上一轮的本地身份）；**0.2.0 起本仓库
-      本地 git 身份改为仓库 owner `xingxue-ux`**（`215101529+xingxue-ux@users.noreply.github.com`）。
-      首发提交未改写，历史里保留原作者；如需全库统一，可 `git rebase` 重写（推送后需 force-push）。
+- [x] **全部提交的作者已统一为仓库 owner**：`git filter-branch --env-filter` 把
+      author/committer 都改为 `xingxue-ux` / `215101529+xingxue-ux@users.noreply.github.com`
+      （提交信息与日期保留；0.1.0 首发提交原本是上一轮身份 `staralsnow`）。
+      该操作**重写了全部提交哈希**，因此仓库历史与最初推送的 `d5fcfe4` / `d64da40` 不同，
+      随后用 `--force-with-lease` 强推（刚建仓、无协作者）。命令见第 12 节。
 - [x] "个人路径 / 凭据"扫描通过（见第 12 节命令，输出为空）
 - [x] **0.2.0 安装后环境自检**：`lib/environment.js` + `scripts/doctor.mjs` + 连接后自动自检
       + 模式提示附加段 + `test/environment.test.mjs`（11 例离线）；`npm test` 全绿。
@@ -301,14 +315,21 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"   # gh 2.97.0
      'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' push`
      配合 `gh auth token` 更可靠。
 
-- [ ] 决定是否在 `LICENSE` 追加本 fork 的版权行（当前保留上游 MIT 原文，
-      `NOTICE.md` 已写清溯源；MIT 只要求保留原版权声明）
-- [ ] （可选）`package.json` 加 `author`；若要发 npm，去掉 `private`、复核 `files`
+- [x] `LICENSE` 追加本 fork 版权行：保留上游 `Copyright (c) 2026 dsh-rea contributors`，
+      其下新增 `Copyright (c) 2026 xingxue-ux (dsh-reverse-mode fork)`（MIT 只要求保留原声明）
+- [x] `package.json` 加 `author: "xingxue-ux (https://github.com/xingxue-ux)"`
+      （仍未发 npm：`private: true` 保持不动）
 - [x] 推送后确认：Actions 里的 CI **变绿**（run `38345379722`；离线用例全过，
       `preset` / `cordis-mount` 因 runner 上没有 DSH 而 skip，符合预期）
-- [ ] （可选）CI 里 `actions/checkout@v4` / `actions/setup-node@v4` 现在会报
-      "Node.js 20 is deprecated" 的 annotation（被强制跑在 Node 24）；功能无影响，
-      想消掉就把两者升到 `@v5`
+- [x] CI 的 `actions/checkout` / `actions/setup-node` 升到 `@v5`，消掉
+      "Node.js 20 is deprecated" 那条 annotation（v5 运行在 Node 24）
+- [x] **统一提交作者**：用 `git filter-branch --env-filter` 把全部提交的 author/committer
+      改为 `xingxue-ux` / `215101529+xingxue-ux@users.noreply.github.com`（保留原提交信息与
+      日期），随后 `git push --force-with-lease`（仓库刚建、无协作者，见第 12 节命令）
+- [x] **上游 issue：无需提交**。核对上游 `master`（v0.2.0）后确认：`logger` 注入与
+      `dispose` no-op 属于 v0.1 代码，上游 v0.2 已整体重写 `lib/index.js`（官方桥、
+      `inject = ['tools','skills']`、无 dispose 处理），两个问题都不复存在。
+      向上游提"已不存在的 bug"是噪音，故不提；结论记在第 9.13 条。
 
 ---
 
@@ -382,22 +403,38 @@ ls -la ~/.dsh/profiles/web/node_modules/dsh-reverse-mode
 grep -rnE '/(home|Users)/[A-Za-z0-9_.-]+/|sk-[A-Za-z0-9]{8}|api[_-]?key' --include='*' . \
   | grep -v node_modules
 
-# 提交历史与本地身份：
-#   0.1.0 首发提交 d5fcfe4，作者 staralsnow（上一轮身份，未改写）
-#   0.2.0 起本地身份 = 仓库 owner：
+# 提交历史与本地身份（全部提交已统一为仓库 owner）：
 git config user.name "xingxue-ux"
 git config user.email "215101529+xingxue-ux@users.noreply.github.com"
-git add -A && git commit -m "feat: install-time environment self-check (0.2.0)"
+git add -A && git commit -m "..."
+
+# 统一历史里所有提交的作者（保留提交信息与日期；【已执行】）：
+FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --env-filter '
+  export GIT_AUTHOR_NAME="xingxue-ux"
+  export GIT_AUTHOR_EMAIL="215101529+xingxue-ux@users.noreply.github.com"
+  export GIT_COMMITTER_NAME="xingxue-ux"
+  export GIT_COMMITTER_EMAIL="215101529+xingxue-ux@users.noreply.github.com"
+' HEAD
+# 重写后强推（刚建仓、无协作者，用 --force-with-lease 更安全）：
+export GH_TOKEN=$("$GH" auth token)
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
+  -c 'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' \
+  push --force-with-lease origin main
+unset GH_TOKEN
 
 # 建仓 + 推送：gh 在 Windows 侧（WSL 的 PATH 里没有），见第 10 节
 GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
 "$GH" auth status
 "$GH" repo create xingxue-ux/dsh-reverse-mode --public --source=. --remote=origin --push
+# 含 .github/workflows/ 的提交需要 workflow scope；缺了会报
+# "refusing to allow an OAuth App to create or update workflow"：
+"$GH" auth refresh -h github.com -s workflow
 # 若 gh 的 Windows/ WSL 路径互操作有问题，退回用 WSL git + gh 的 token（不要把 token 写进 .git/config）：
 #   TOKEN=$("$GH" auth token)
 #   git remote add origin https://github.com/xingxue-ux/dsh-reverse-mode.git
 #   git push "https://x-access-token:${TOKEN}@github.com/xingxue-ux/dsh-reverse-mode.git" main:main
 #   git push -u origin main   # 之后凭据由 gh 的 helper 提供
+# 不要改用 Windows 的 GCM（credential.helper=manager）：会弹交互窗口并挂住
 
 # 推送后确认 CI
 "$GH" run list --repo xingxue-ux/dsh-reverse-mode
@@ -408,21 +445,30 @@ GH="/mnt/c/Program Files/GitHub CLI/gh.exe"
 ## 13. 未决问题 / 建议路线
 
 **已决定（用户指示：先跟上游项目 `dsh-rea` 保持一致）** —— 以下各项本版**不改**，即保持
-与所 fork 上游相同的行为与形态，避免在无明确需求时制造分叉：
+与 fork 基线（上游 **v0.1**）相同的行为与形态，避免在无明确需求时制造分叉。
+⚠ 上游 `master` 现在是 v0.2.0，已换代（见第 9.13 条），所以"一致"只对 v0.1 成立：
 
-1. **层级语义**（第 9.2 条）：保持**替换**语义，`lib/catalog.js` 仍逐字复制，不改累加、不改注释。
+1. **层级语义**（第 9.2 条）：保持**替换**语义，`lib/catalog.js` 仍逐字复制（**上游 v0.1**
+   的版本；上游 v0.2 已把该文件删成 5 行注释），不改累加、不改注释。
 2. **惰性启动**：保持现状 —— boot/挂载即拉起常驻 REA 子进程，不做"内置 schema 快照 + 首调 spawn"。
-3. **子进程池化/共享**：不做。多逆向会话 = 多进程，与上游一致。
+3. **子进程池化/共享**：不做。多逆向会话 = 多进程，与 v0.1 一致。
 4. **文档 i18n**：暂不新增 `README.en.md` / `HANDOFF.en.md`；文档继续以中文为主。
 5. **CI 增强**：暂不在 CI 里装 DSH；`preset` / `cordis-mount` 用例缺 DSH 时继续 skip。
-6. **上游 bug 回报**：`logger` 注入与 `dispose` no-op 仍是上游 bug，本 fork 已在 `lib/index.js`
-   修掉。gh 凭据现在可用（`xingxue-ux`），但向上游公开提 issue/PR 属于对外动作，待用户决定。
+   （已做的只有维护性升级：`actions/*@v5`。）
+6. **上游 bug 回报（已核实：不提）**：`logger` 注入与 `dispose` no-op 只存在于 v0.1 代码；
+   上游 v0.2 已整体重写桥接层，两者都不复存在。提交"已修复的问题"是噪音，故不提。
 7. **引擎接入（第 9.4 条相关）**：Ghidra 依旧"使用者自备 + `env` 注入"，本包只做检测与引导
    （0.2.0 的 `npm run doctor`），不代为安装 —— 与 REA/上游"bring your own"的立场一致。
 
+**新出现的决策项（来自第 9.13 条的上游换代）**
+
+8. **是否跟进上游 v0.2？** 上游 v0.2 用官方 MCP 桥挂**全量 170 工具**（`mcp__rea__`），
+   取消了层级筛选。跟进 = 放弃本 fork 的核心价值（`entry` 9 工具 ~2.7 万 token/次 vs
+   全量 ~54 万 token/次），但也换来官方桥的分页/取消/生命周期与上游 skill。
+   目前**不跟进**（0.2.0 保持 v0.1 形态 + 自研零依赖桥）；若将来要做，建议并列为**新预设**
+   （如"逆向模式（全量）"），而不是替换现有预设，这样两种成本档位都保留。
+
 **仍待办（需要外部条件，非设计问题）**
 
-- 建仓 + 推送：本机无 `gh` / 无凭据，见第 10 节三条路径。
-- 若要让自检更完整，可在联网机器上跑一次 `npm run doctor -- --json` 并把结果留档（本机
-  已跑，结论见第 11 节）。
 - Windows / macOS 上验证 `npm run doctor`（`resolveRunner` 已处理 `npx.cmd`，但未实测）。
+- 若要发布到 npm：去掉 `private`、复核 `files`、确认 `engines` 与 REA 的 Node 范围一致。

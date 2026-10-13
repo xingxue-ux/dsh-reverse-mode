@@ -29,8 +29,17 @@
 - 版本 `0.1.0` → `0.2.0`；`package.json` 增加 `doctor` 脚本，`scripts` 进入 `files`。
 - preset 行 `rea-bridge` 的注释补上三种引擎的 `env` 示例（行配置本身未变）。
 - MCP 握手的 `clientInfo.version` 改为读取 `package.json`，不再硬编码。
+- `LICENSE` 增加本 fork 版权行（保留上游 MIT 声明）；`package.json` 增加 `author`。
+- CI 的 `actions/checkout` / `actions/setup-node` 升到 `@v5`，消除 Node 20 弃用提示。
 - **未决项决定**：与上游 `dsh-rea` 保持一致 —— 本版不改变 `entry` / `navigate` / `analyze` 的替换语义
   （`lib/catalog.js` 仍逐字复制），也不引入惰性启动、子进程池化或额外的 i18n / CI 变更。
+- **文档更正（上游已换代）**：核对上游 `master` 为 `dsh-rea@0.2.0`，它已删除 tier 目录
+  （`lib/catalog.js` 只剩注释）、改用官方 `@deepseek-ai/dsh-mcp-client` 挂全量 170 工具、
+  命名空间 `mcp__rea__`，并整体重写 `lib/index.js`。因此：
+  1. 上述"与上游一致"明确指 **fork 基线 v0.1**（HANDOFF 第 9.13 条）；
+  2. v0.1 时代的 `logger` 注入与 `dispose` no-op 两处问题在上游 v0.2 已不复存在，
+     **不向上游提交 issue**（提"已修复的问题"是噪音）；
+  3. 是否跟进上游 v0.2（等于放弃层级筛选省 token）列为新决策项（HANDOFF 第 13.8 条）。
 
 ### Verified
 
