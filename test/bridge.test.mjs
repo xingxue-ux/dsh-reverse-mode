@@ -299,6 +299,18 @@ await test('apply registers exactly the curated tier and a scoped prompt section
   const text = harness.sections[0].text()
   assert.ok(text.includes('逆向模式'), 'the section explains the mode')
   assert.ok(text.includes('rea__open_binary'), 'the section routes by target')
+  assert.ok(
+    text.includes('本机流量观测'),
+    'local traffic observation and protocol analysis are explicitly in scope',
+  )
+  assert.ok(
+    text.includes('不要求你自证'),
+    'authorization belongs to the user and is not gated on proof',
+  )
+  assert.ok(
+    !/(禁止|不得)[^。\n]{0,12}(网络|代理|抓包|流量)/.test(text),
+    'the section must not inject a network/interception prohibition',
+  )
 
   assert.ok(
     harness.logs.info.some((line) => line.includes('registered 2/3 REA tools')),

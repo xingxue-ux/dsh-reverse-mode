@@ -84,7 +84,7 @@
 | `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
 | `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
 | `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(**30**) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`；见第 9.13 条）；只有内置桥会用它 |
-| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第 2 参数是环境报告，第 3 参数是**实际工具前缀**（`mcp__rea__` / `rea__`） | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/许可边界"两段；前缀必须跟着实际挂载的桥 |
+| `lib/guidance.js` | 「逆向模式」`systemPrompt` 段文本（`REVERSE_MODE_SECTION = 'reverse-mode:policy'`，`interpolate: false`）；第 2 参数是环境报告，第 3 参数是**实际工具前缀**（`mcp__rea__` / `rea__`） | 文本里**不要**写 `{{...}}`（即使 interpolate=false，也保持习惯），并保持"证据/边界"两段；前缀必须跟着实际挂载的桥。边界段（0.3.2 起）明确：**授权归使用者、不要求自证**，**本机流量观测/协议分析在范围内**，限制只来自宿主沙箱/审批与目标软件授权——改这段时同步改 `test/bridge.test.mjs` 里对应的三条断言 |
 | `lib/mcp-stdio.js` | **内置桥**：零依赖 MCP stdio 客户端：`initialize`、`tools/list` 游标分页、`tools/call`、AbortSignal 取消、超时、SIGTERM→SIGKILL 关闭、拒绝服务端发起的请求 | 见第 4 节；`clientVersion` 由 `index.js` 从 `package.json` 注入；官方桥解析不到时它就是唯一路径 |
 | `test/bridge.test.mjs` + `test/fake-rea-server.js` | 离线端到端：假 REA server + 双模 `npx` shim（MCP / `doctor`），覆盖配置校验（含 `bridge`）、筛选、渲染、超时、取消、启动失败降级、环境自检的日志与提示段 | 改 `apply()` 行为后先让这里绿；`tools` 选层级时走内置桥，用例显式 `checkEnvironment: false` |
 | `test/official-bridge.test.mjs` | 官方桥解析的离线用例：锚点推导、`chooseBridge` 策略矩阵、`isUnfiltered`、用假包测 `loadOfficialBridge`（含"不是插件"与"解析不到"）、本机共享目录存在时的真实解析 | 全离线；解析策略改动必须先改这里 |
@@ -374,6 +374,9 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
 - [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
       模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
+- [x] **0.3.2 边界措辞改写**：`lib/guidance.js` 的边界段改为「授权归使用者、不要求自证 +
+      本机流量观测/协议分析在范围内 + 限制不来自本段」，去掉可能被模型读成"先自证授权"的门槛；
+      段落 1,213 → 1,355 chars；`test/bridge.test.mjs` 加三条断言（含"不得注入禁止网络/代理/抓包"）。
 - [x] **0.3.1 官方桥硬化（A + C）**：
       A = `harnessDshRoot()` / `sameInstallation()` —— 用 `realpath(process.argv[1])` 推导运行中
       的 DSH 安装，要求官方桥与其同一 `node_modules` 基线，**且在 `import()` 之前判定**
