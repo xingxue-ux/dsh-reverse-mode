@@ -3,6 +3,45 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.3] - 2026-10-18
+
+适配 **DeepSeek Harness `0.2.1-rc.1`**（原为 `0.2.0-rc.2`），并把预设快照同步到新版
+`standard`。
+
+### Fixed
+
+- **预设快照漂移**：DSH `0.2.1-rc.1` 的 `standard` 预设新增 3 行
+  （`time-context` → `@deepseek-ai/dsh-time-context`、`tool-schedule` →
+  `@deepseek-ai/dsh-tool-schedule`、`tool-plugin-market` →
+  `@deepseek-ai/dsh-plugin-market/tools`，后者 `disabled: true`），并改写了 `persona`
+  （去掉 `suffix: Your working directory is {{cwd}}.`）、`planning` 的 plan-mode 段文本、
+  `delegation` 的分组内容（移除 `tool-subagent-codex` / `tool-subagent-claude-code` /
+  `tool-ralph`）。`presets/reverse.patch.yml` 现按维护流程**重新取 standard 的 `plugins`
+  原文**，再追加唯一的 `rea-bridge` 行；`test/preset.test.mjs` 恢复通过。
+- **两个测试依赖宿主环境**：`environment.test.mjs` 里"无引擎"的两个用例只传了 `{ PATH: '' }`，
+  但 `inspectEnvironment` 会把 `process.env` 合并在下，所以在已导出 `GHIDRA_INSTALL_DIR` 的
+  机器上会误判为"有引擎"。新增 `NO_ENGINE_ENV`（显式清空 `GHIDRA_INSTALL_DIR` /
+  `GHIDRA_HOME` / `HOPPER_LAUNCHER_PATH` / `REA_IDA_MCP_CONFIG` / `JAVA_HOME` / `PATH`），
+  使断言只反映渲染与回退逻辑，与宿主装了什么无关。
+
+### Verified
+
+- `npm test` **41 例全绿**（bridge 10 / environment 11 / official-bridge 13 / preset 4 /
+  cordis-mount 3），在 DSH `0.2.1-rc.1` + cordis `4.0.5` 上运行。
+- 官方桥解析到 `@deepseek-ai/dsh-mcp-client@0.2.1-rc.1`，`inject` 仍为 `["tools"]`，
+  `name: mcp-client`；`loadOfficialBridge()` 的来源校验通过。
+- `npm run test:live`（官方桥 + 真 REA 6.4.0）：注册 **170** 个 `mcp__rea__*`、
+  模型可见 **436.6 kB**，dispose 后 0 残留。
+- 新预设引用的 3 个包均存在于新安装（`dsh-time-context`、`dsh-tool-schedule`、
+  `dsh-plugin-market` 的 `./tools` 导出）。
+- 运行中的 harness（11:37 启动）已在使用官方桥并拉起 REA，证明 0.2.1 下插件可正常挂载。
+
+### Notes
+
+- 预设**子插件列表**的变化（本次新增 3 行）不会随 HMR 生效：运行中的 harness 仍持有
+  boot 时读到的旧组合，需重启一次才能让新的 `standard` 行进入逆向模式。
+- `lib/*.js` 无改动，因此不需要为本次适配重新理解桥/提示词逻辑。
+
 ## [0.3.2] - 2026-10-14
 
 改写「逆向模式」提示段的**边界措辞**：授权明确归使用者、本机流量观测写明在范围内，

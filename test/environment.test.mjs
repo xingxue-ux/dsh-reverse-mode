@@ -272,10 +272,28 @@ await test('probeLocal flags a detectable but unconfigured install', async () =>
 // Rendering and the prompt note
 // ---------------------------------------------------------------------------
 
+/**
+ * An environment with no engine configured, **independent of the host**.
+ *
+ * `inspectEnvironment` merges the ambient `process.env` under the supplied
+ * values, so passing `{ PATH: '' }` alone still lets a host that exports
+ * `GHIDRA_INSTALL_DIR` look healthy. Empty strings override those names, which
+ * keeps these assertions about the renderer and the fallback rather than about
+ * what happens to be installed on the machine running the suite.
+ */
+const NO_ENGINE_ENV = Object.freeze({
+  PATH: '',
+  GHIDRA_INSTALL_DIR: '',
+  GHIDRA_HOME: '',
+  HOPPER_LAUNCHER_PATH: '',
+  REA_IDA_MCP_CONFIG: '',
+  JAVA_HOME: '',
+})
+
 await test('the report names each engine and how to wire one in', async () => {
   const report = await inspectEnvironment({
     forceLocal: true,
-    env: { PATH: '' },
+    env: NO_ENGINE_ENV,
     platform: 'linux',
     home: mkdtempSync(join(tmpdir(), 'dsh-reverse-mode-home-')),
   })
@@ -330,7 +348,7 @@ await test('inspectEnvironment falls back to the local probe when the runner fai
     runner: join(tmpdir(), 'definitely-not-a-runner'),
     version: '0.0.0',
     timeoutMs: 2_000,
-    env: { PATH: '' },
+    env: NO_ENGINE_ENV,
     home: mkdtempSync(join(tmpdir(), 'dsh-reverse-mode-home-')),
   })
   assert.equal(report.source, 'local-probe')

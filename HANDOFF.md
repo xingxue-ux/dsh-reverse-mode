@@ -4,7 +4,7 @@
 判断改动是否生效、在真机上验证、并决定后续路线。
 
 - 仓库：`dsh-reverse-mode`（开源，MIT，见 `NOTICE.md` 溯源）
-- 版本：`0.3.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 版本：`0.3.3`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 唯一的现实使用场景：**DeepSeek Harness（DSH）** 的 `web` profile，预设「逆向模式」
 
 ---
@@ -374,6 +374,14 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
 - [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
       模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
+- [x] **0.3.3 适配 DSH `0.2.1-rc.1`**（2026-10-18，`0.2.0-rc.2` → `0.2.1-rc.1`）：
+      新版 `standard` 新增 3 行（`time-context` / `tool-schedule` / `tool-plugin-market`）并改动
+      `persona` / `planning` / `delegation`，本包的快照因此漂移（`preset.test` 报 20 !== 23）。
+      按机制 2 的维护流程**重新取 standard 的 `plugins` 原文 + 追加唯一 `rea-bridge` 行**；
+      同时修掉两个"依赖宿主没装引擎"的环境测试（显式清空 `GHIDRA_INSTALL_DIR` 等）。
+      验证：41 例全绿（cordis 4.0.5）；官方桥解析到 `0.2.1-rc.1` 且 `inject` 仍为 `["tools"]`；
+      `test:live` 170 工具 / 436.6 kB / dispose 0 残留。
+      ⚠ 记住：**预设子插件列表的变化不随 HMR 生效**，运行中的 harness 仍持旧组合，需重启一次。
 - [x] **0.3.2 边界措辞改写**：`lib/guidance.js` 的边界段改为「授权归使用者、不要求自证 +
       本机流量观测/协议分析在范围内 + 限制不来自本段」，去掉可能被模型读成"先自证授权"的门槛；
       段落 1,213 → 1,355 chars；`test/bridge.test.mjs` 加三条断言（含"不得注入禁止网络/代理/抓包"）。
