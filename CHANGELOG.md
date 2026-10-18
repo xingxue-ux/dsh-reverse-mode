@@ -3,6 +3,41 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.4] - 2026-10-18
+
+修复「逆向模式」在 **opencode-go `deepseek-flash-1017`** 等非 strict-tool 模型上的
+`HTTP 400`：REA 的 `$defs`/`$ref` schema 在 pi-ai 的 legacy 投影下会留下悬空引用。
+
+### Fixed
+
+- **根因**：pi-ai 对不声明 strict tool sampling 的模型，把工具 schema 投影成
+  `{ type, properties, required }`，**丢掉 `$defs`**；REA 有 **158/170** 个 schema 用
+  `properties → $ref: "#/$defs/…"`，于是请求带着悬空 `$ref` 发出，网关返回
+  `400 {"model":"deepseek-flash"}`。实测：原始 schema 200、legacy（丢 `$defs`）400、
+  legacy + `$defs` 200 —— 与报错完全吻合。其它预设不受影响，因为标准工具箱不用 `$ref`。
+- 新增 `lib/schema.js`：`inlineSchemaRefs()` 在注册前把本地 `$defs` / `definitions`
+  递归内联进 `properties`，合并 `$ref` 旁的兄弟字段，循环/未解析/外部引用降级为
+  `{ type: 'object' }`（永不留下 `$ref`），不修改入参；内置桥的 `registerTool()` 现在
+  用它处理 `parameters`（模型可见字节的统计也基于内联后的 schema）。
+- **预设默认桥改为 `bridge: builtin`**：官方桥（`dsh-mcp-client`）直接注册原始 MCP schema，
+  无法内联，因此对这类模型必然 400。需要官方桥时仍可显式设 `bridge: official`（并在
+  上游修好投影前只配 strict-tool 模型使用）。
+- 内置桥补上官方桥原有的**环境变量清理**：`scrubChildEnv()` 丢弃名字匹配
+  `KEY|PASSWORD|SECRET|TOKEN` 的变量与全部 `DSH_*`，`config.env` 的显式值仍然生效
+  （`GHIDRA_INSTALL_DIR` / `JAVA_HOME` / `REA_*` 都不受影响）。
+
+### Verified
+
+- 单测：`test/schema.test.mjs` 9 例（嵌套/数组引用、兄弟字段合并、`definitions`、
+  循环、未解析、外部引用、非对象、不可变）；`test/bridge.test.mjs` 增加
+  `scrubChildEnv` 与"注册参数不含 `$ref`/`$defs`"的断言（假 server 的 `open_binary`
+  已改成 `$defs` 形式）。
+- 真机端到端：内置桥 + 真 REA 6.4.0 注册 **170** 个工具，注册参数中
+  `$ref`/`$defs` 均为 0；用这些工具打 opencode-go（`deepseek-flash`）→ **200**，
+  `input_tokens: 161422`；dispose 后 0 残留。
+- `npm test` 全绿（bridge 11 + schema 9 + environment 11 + official-bridge 13 +
+  preset 4 + cordis-mount 3 = **51**）。
+
 ## [0.3.3] - 2026-10-18
 
 适配 **DeepSeek Harness `0.2.1-rc.1`**（原为 `0.2.0-rc.2`），并把预设快照同步到新版

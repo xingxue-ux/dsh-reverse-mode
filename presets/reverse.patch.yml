@@ -137,15 +137,20 @@
 
           # REA reverse-engineering bridge: the only place this plugin is mounted.
           #
-          # `bridge: official` mounts the harness's own @deepseek-ai/dsh-mcp-client
-          # (resolved at runtime from the launcher's shared node_modules, so this
-          # stays a `link:` install with zero repo dependencies); if that package
-          # cannot be resolved the plugin falls back to its built-in client.
+          # `bridge: builtin` is the default because the built-in client inlines
+          # REA's `$defs`/`$ref` schemas before registering tools. The official
+          # harness bridge (@deepseek-ai/dsh-mcp-client) registers the raw MCP
+          # schema, and pi-ai projects non-strict models' tools down to
+          # `{type, properties, required}` — which drops `$defs` and leaves
+          # dangling refs, so providers answer HTTP 400 for models without strict
+          # tool sampling (observed with opencode-go deepseek-flash-1017; 158 of
+          # REA's 170 schemas use `$ref`). Switch to `bridge: official` only if
+          # you know your model tolerates the projection, or once upstream keeps
+          # `$defs` in that projection.
           #
-          # The official bridge has no allow-list, so `tools` must be `all`:
-          # this session registers all ~170 REA tools (~436 kB / ~109k tokens of
-          # model-visible schema per request). For the cheap configuration
-          # instead, set `bridge: builtin` + `tools: entry` (9 tools, ~11 kB).
+          # `tools: all` registers all ~170 REA tools (~160k tokens of tool
+          # schema per request once the refs are inlined). For the cheap
+          # configuration instead, set `tools: entry` (9 tools, ~11 kB).
           #
           # Native deep analysis needs one analysis engine the user supplies
           # (Hopper / Ghidra / IDA); archives, packages, JS/Electron and managed
@@ -159,7 +164,7 @@
           - id: rea-bridge
             name: dsh-reverse-mode
             config:
-              bridge: official
+              bridge: builtin
               tools: all
               version: '6.4.0'
               toolCallTimeoutMs: 300000

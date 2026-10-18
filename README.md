@@ -17,24 +17,35 @@ Agent preset 是**每个会话独立的 Cordis 插件树**：预设里挂载的�
 
 ## 用哪个桥
 
-本包有两条桥，配置项 `bridge` 默认 `auto`：
+本包有两条桥，配置项 `bridge` 默认 `auto`，但**预设行预置的是 `builtin`**（原因见下）：
 
 | | 官方桥（`@deepseek-ai/dsh-mcp-client`） | 内置桥（`lib/mcp-stdio.js`） |
 |---|---|---|
 | 工具筛选 | ❌ 没有 allow-list，注册全部 ~170 个 | ✅ `entry`(9) / `navigate`(30) / `analyze`(17) / 显式数组 |
-| 模型侧 schema 成本 | ~436 kB ≈ **10.9 万 token / 次请求** | `entry` ~11 kB ≈ **2.8k token / 次请求** |
+| **REA 的 `$defs`/`$ref` schema** | ❌ 原样注册，pi-ai 的 legacy 投影会丢 `$defs` → **部分模型 HTTP 400** | ✅ 注册前把 `$defs` 内联进 `properties` |
+| 模型侧 schema 成本 | ~436 kB ≈ **10.9 万 token / 次请求**（全量） | 全量内联后 ~547 kB ≈ **13.7 万 token**；`entry` ~11 kB ≈ **2.8k token** |
 | 工具名前缀 | `mcp__rea__…` | `rea__…` |
-| 追加能力 | SDK 分页、工具表变化订阅、注册失败整代回滚、canonical `structuredContent`/图片保真、取消与超时细化、**环境变量清理**（丢弃名字匹配 `KEY/PASSWORD/SECRET/TOKEN` 的变量与 `DSH_*`） | 体积小、零依赖、只实现用到的 MCP 子集 |
+| 追加能力 | SDK 分页、工具表变化订阅、注册失败整代回滚、canonical `structuredContent`/图片保真、取消与超时细化 | 体积小、零依赖、只实现用到的 MCP 子集；同样**清理环境变量**（丢弃 `KEY/PASSWORD/SECRET/TOKEN` 与 `DSH_*`） |
 | 来源 | harness 自带；运行时从 `~/.dsh/profiles/node_modules` 解析到**宿主那一份**（不复制、不新增依赖） | 本仓库 |
 
 `auto` 的规则：**只有没有筛选需求时**（`tools: all` 或 `null`）才选官方桥；请求了层级名或数组一律走内置桥——否则官方桥会把 9 个工具悄悄放大到 170 个（约 39×）。官方桥解析不到时（例如 `~/.dsh` 布局不同）自动退回内置桥并告警，只写日志、不会让预设挂载失败。
 
-`presets/reverse.patch.yml` 里预置的是**官方桥 + 全量**（`bridge: official` + `tools: all`）。想要省上下文的档位，把那一行改成：
+### 为什么预设默认用内置桥
+
+REA 的 170 个工具里有 **158 个**用 `$defs` + `$ref` 写 schema。pi-ai 对**不声明 strict tool sampling** 的模型，会把工具 schema 投影成 `{ type, properties, required }`，**把 `$defs` 丢掉**，于是 `$ref: "#/$defs/…"` 变成悬空引用，provider 直接返回：
+
+```
+HTTP 400 {"model":"deepseek-flash"}
+```
+
+实测（opencode-go `deepseek-flash-1017`）：原始 schema 200、legacy（丢 `$defs`）**400**、legacy + `$defs` 200。标准工具箱没有 `$ref`，所以只有逆向模式会撞上。内置桥在注册前内联引用，因此对 strict 与非 strict 模型都能用；官方桥没有这个钩子。
+
+`presets/reverse.patch.yml` 预置 `bridge: builtin` + `tools: all`。想要省上下文的档位，把那一行改成 `tools: entry`；如果你的模型支持 strict tool sampling 且你更想要官方桥的能力，可显式设 `bridge: official`：
 
 ```yaml
 config:
-  bridge: builtin
-  tools: entry
+  bridge: official
+  tools: all
 ```
 
 ## 与上游 dsh-rea 的差异
@@ -105,7 +116,7 @@ node scripts/doctor.mjs --local  # 不启动子进程，离线最快
 |---|---|---|
 | `enabled` | `true` | 设为 `false` 时保留挂载但不注册工具、不拉 REA 进程 |
 | `bridge` | `'auto'` | `auto` / `official` / `builtin`；见上节。`auto` 只在 `tools: all`/`null` 时用官方桥 |
-| `tools` | `'entry'` | 层级名 `entry`(9) / `navigate`(30) / `analyze`(17)、REA 工具名数组，或 `'all'` / `null` 表示全量。**只有在内置桥下才生效**：官方桥没有 allow-list，会注册全部 ~170 个（~10.9 万 token/次）；预设行现在预置 `all` + `official` |
+| `tools` | `'entry'` | 层级名 `entry`(9) / `navigate`(30) / `analyze`(17)、REA 工具名数组，或 `'all'` / `null` 表示全量。**只有在内置桥下才生效**：官方桥没有 allow-list，会注册全部 ~170 个（~10.9 万 token/次）；预设行现在预置 `all` + `builtin` |
 | `version` | `'6.4.0'` | 固定的 `rea-agents` 版本，保证工具名与 schema 稳定 |
 | `runner` | `'npx'` | 启动 REA 的包运行器（两条桥都用它） |
 | `env` | `{}` | 追加给 REA 子进程的环境变量（如 `REA_ANALYSIS_PROVIDER`） |
@@ -144,7 +155,8 @@ node test/read-session-log.mjs ~/.dsh/sessions/<workspace>/<session-id>/session.
 - **官方桥必须来自"正在运行的这一份"**：解析锚点（`DSH_PROFILE_DIR` / `DSH_HOME` / `~/.dsh/profiles`）逐个尝试后，还会把结果与 `realpath(process.argv[1])` 推导出的运行中 DSH 安装做一致性校验；**不在同一安装里的包会被跳过且永不执行**（防"陈旧的 `~/.dsh/profiles` 指向另一套 DSH"）。检查在 `import()` 之前完成。
 - **降级是显式的，且不会静默断供**：官方桥解析不到、或解析到却启动失败（版本不匹配、Config 变化等），都会写一条 warn 并自动改用内置桥；失败原因会一并打印（`not usable (<原因>)`）。因此看到 `bridge=builtin` 就说明发生了降级——功能仍在，少的是官方桥的健壮性与 env 清理。注意官方桥路径会 `await` 首次连接（上游同款），所以预设激活会等 REA 起来或失败，而不是后台挂载后静默留空。
 - **官方桥下 `tools` 不生效**：它会注册 REA 声明的全部 ~170 个工具（~436 kB ≈ 10.9 万 token/次）。要低成本的层级筛选，必须 `bridge: builtin`。
-- **官方桥会用清理后的环境**：名字匹配 `KEY/PASSWORD/SECRET/TOKEN` 的继承变量与 `DSH_*` 会被丢弃，**只有**你在 `env` 里显式写下的变量会传给 REA；引擎变量（`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`）不属于被清理的模式，照常生效。
+- **官方桥 + 非 strict-tool 模型会 400**：官方桥原样注册 REA 的 `$defs`/`$ref` schema，而 pi-ai 的 legacy 投影会丢掉 `$defs`，导致悬空引用（实测 opencode-go `deepseek-flash-1017` 返回 `400 {"model":"deepseek-flash"}`）。因此预设默认 `bridge: builtin`；内置桥会在注册前内联引用。
+- **两条桥都会清理环境**：名字匹配 `KEY/PASSWORD/SECRET/TOKEN` 的继承变量与 `DSH_*` 会被丢弃，**只有**你在 `env` 里显式写下的变量会传给 REA；引擎变量（`GHIDRA_INSTALL_DIR`、`HOPPER_LAUNCHER_PATH`、`REA_IDA_MCP_CONFIG`）不属于被清理的模式，照常生效。
 - 预设的子插件列表是**完全替换式**的：本文件的列表是标准预设的快照，DSH 升级后若标准预设新增插件，需要手动同步过来。
 - REA 自身可能提示结果超出 stdio 传输预算，此时用 `export_evidence_bundle` 或 REA CLI 取回：`npx -y rea-agents@latest <command>`（工具前缀依桥而定：官方桥 `mcp__rea__`，内置桥 `rea__`）。
 - 工具名与 `version` 绑定；内置桥下未知名字只告警并跳过，官方桥下工具表由 REA 的 `tools/list` 决定。

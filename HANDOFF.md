@@ -4,7 +4,7 @@
 判断改动是否生效、在真机上验证、并决定后续路线。
 
 - 仓库：`dsh-reverse-mode`（开源，MIT，见 `NOTICE.md` 溯源）
-- 版本：`0.3.3`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 版本：`0.3.4`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 唯一的现实使用场景：**DeepSeek Harness（DSH）** 的 `web` profile，预设「逆向模式」
 
 ---
@@ -24,8 +24,10 @@
 - **内置桥** `lib/mcp-stdio.js`（本仓库、零依赖），前缀 `rea__`，可按 `entry`/`navigate`/`analyze`
   层级或显式数组筛选（`entry` 实测 ~11.2 kB ≈ 2.8k token/请求）。
 
-预设行现在预置 `bridge: official` + `tools: all`；改回 `bridge: builtin` + `tools: entry`
-即低开销档位。两条桥都**只在逆向模式的 scope 内**注册。
+预设行预置 `bridge: builtin` + `tools: all`（0.3.4 起；内置桥会把 REA 的 `$defs`/`$ref`
+内联后再注册，见第 9.17 条）。想要低开销就用 `tools: entry`；如果你的模型支持 strict tool
+sampling 且更需要官方桥的能力，可显式设 `bridge: official`。两条桥都**只在逆向模式的 scope
+内**注册。
 
 安装后有两层**环境自检**（0.2.0 新增）：手动 `npm run doctor` 打印引擎现状与安装指引；
 插件在 REA 连接成功后会自动再查一次，缺失时写宿主日志并把提示并入模式系统提示。两者都
@@ -81,6 +83,7 @@
 | `presets/reverse.patch.yml` | `insert` 出 `@deepseek-ai/dsh-agent-preset` 声明：`id: reverse-engineering`、`name: 逆向模式`、`order: 5`、`plugins: [standard 全套… , rea-bridge]` | 子列表是快照，见机制 2；`rea-bridge` 行的 `config` 是唯一常规调参点 |
 | `lib/index.js` | 预设子插件本体：配置解析、模式提示段注册、**桥选择（官方 / 内置）**、REA 启动、目录筛选、`*__*` 注册、结果渲染、连接后环境自检、teardown | `inject` / teardown 是机制 3、4 的落点，别删注释；`apply` 现在是 **async**（要先 `await loadOfficialBridge()`），但提示段在 await **之前**注册；官方桥的 teardown 单独一个 effect |
 | `lib/official-bridge.js` | 运行时解析宿主自带的 `@deepseek-ai/dsh-mcp-client`：多锚点 `createRequire`、`chooseBridge()` 选择策略、`isUnfiltered()`、`harnessDshRoot()` / `sameInstallation()` 来源校验、`diagnostics` 输出 | **永不抛错**（任何失败都返回 null → 回退内置桥）；`auto` 只在 `tools: all/null` 时选官方桥——否则会把 9 个工具放大到 170；**来源校验在 `import()` 之前**，跨安装的包不会被执行；改锚点/校验先改 `test/official-bridge.test.mjs` |
+| `lib/schema.js` | `inlineSchemaRefs()`：把本地 `$defs`/`definitions` 递归内联进 `properties`（含兄弟字段合并、循环/未解析降级为 `{type:'object'}`），`hasRefs()` 供测试断言 | **这是 400 的修复点**：pi-ai 的非 strict 投影只保留 `{type, properties, required}`；任何用 `$ref` 的新工具都必须经过它 |
 | `lib/environment.js` | 环境自检：解析 REA 自带 `rea doctor` 的 JSON（`--filter-output` 降体积）、本地回退探测、报告渲染、模式提示附加段 | **只读**：不安装、不写文件、不因缺引擎而失败；`summarizeDoctor` / `probeLocal` / `renderEnvironmentReport` / `buildEnvironmentNote` 是纯函数，改判定逻辑先改测试 |
 | `scripts/doctor.mjs` | `npm run doctor` 的 CLI：中文报告 + `--json` / `--local` / `--strict` / `--runner` / `--version` / `--timeout` | 默认退出码 0（引导用途）；`--strict` 才会因无引擎返回 1 |
 | `lib/catalog.js` | 层级目录：`ENTRY_TOOLS`(9) / `NAVIGATE_TOOLS`(**30**) / `ANALYZE_TOOLS`(17)、`TIERS`、`DEFAULT_TOOLS`、`USAGE_NOTE` | **上游 v0.1 逐字复制**（⚠ 上游 v0.2 已把该文件删成 5 行 `legacy v0.1 tier catalog removed`；见第 9.13 条）；只有内置桥会用它 |
@@ -202,7 +205,8 @@ profile boot
 | 内置桥 `navigate` | 30 | 43,223 B | ~10.8k |
 | 内置桥 `analyze` | 17 | 61,597 B | ~15.4k |
 | 内置桥三层并集（显式数组） | 56 | 116,060 B | ~29k |
-| **官方桥（预设默认，全量）** | **170** | **432,845 B** | **~108k** |
+| 官方桥全量（原始 schema） | 170 | 432,845 B | ~108k |
+| **内置桥全量（预设默认，`$defs` 内联后）** | **170** | **546,668 B** | **~137k**（实测 input_tokens 161k，含系统提示与历史） |
 
 ⚠ **旧文档（≤0.2.0）写的"`entry` ~98 kB ≈ 2.7 万 token / `all` ~1.9 MB ≈ 54 万 token"是错的**：
 那两个数量的是 REA 原始 `tools/list`（含 **output schema** 1,494,071 B 与 annotations），而
@@ -229,7 +233,7 @@ npm run session:log -- <session.v4.jsonl.zstd> --tools   # 事后核查某个会
 退回本地探测并**标注来源**；`--local` 直接走本地探测（离线、最快）。两者都不安装任何东西，
 需要引擎时按输出的 `env` 片段改 preset 行即可。
 
-`npm test` 当前 **41 例**：bridge 10 + environment 11 + official-bridge 13 + preset 4 +
+`npm test` 当前 **51 例**：bridge 11 + schema 9 + environment 11 + official-bridge 13 + preset 4 +
 cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip）。
 
 **改动生效规则（本 profile 的硬约束）**：
@@ -347,6 +351,13 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
 16. **双桥维护成本**：内置桥（`lib/mcp-stdio.js` + `catalog.js` + 层级筛选）与官方桥路径都在，
     改动 `apply()` 要同时考虑两条路；官方桥的 Config/行为随 DSH 升级可能变，而内置桥是我们
     自己的代码、不受影响。第 13 节列了"是否收敛到单桥"的选项。
+17. **工具 schema 的 `$defs` 陷阱（0.3.4 修复）**：pi-ai 对**不声明 strict tool sampling**
+    的模型会把工具 schema 投影成 `{ type, properties, required }`，**丢掉 `$defs`**。REA 的
+    158/170 个 schema 用 `$ref: "#/$defs/…"`，于是请求带悬空引用 → provider
+    `400 {"model":"deepseek-flash"}`（实测 opencode-go `deepseek-flash-1017`；其它预设因为
+    标准工具箱没有 `$ref` 而正常）。修法：`lib/schema.js` 的 `inlineSchemaRefs()` 在注册前
+    内联；**官方桥无法内联**，所以预设默认 `bridge: builtin`。以后若新增带 `$ref` 的工具源，
+    必须走内置桥或先在注册前内联。若上游修好投影（保留 `$defs` 或内联），可把默认桥切回官方。
 
 ---
 
@@ -374,6 +385,15 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
 - [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
       模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
+- [x] **0.3.4 修复非 strict-tool 模型的 400**（2026-10-18）：
+      `deepseek-flash-1017`（opencode-go）在逆向模式报 `400 {"model":"deepseek-flash"}`，
+      其它模式正常。根因不在预设：pi-ai 对不声明 strict tool sampling 的模型把工具 schema
+      投影成 `{type, properties, required}`，**丢掉 `$defs`**；REA 有 158/170 个 schema 用
+      `$ref: "#/$defs/…"` → 悬空引用 → 400（实测：原始 200 / legacy 400 / legacy+$defs 200）。
+      新增 `lib/schema.js` 在注册前内联 `$defs`，内置桥的 `registerTool()` 使用它；预设默认桥
+      改为 `bridge: builtin`（官方桥无此钩子）；内置桥补上 `scrubChildEnv()` 环境清理。
+      验证：注册参数 0 个 `$ref`/`$defs`，170 工具打网关 **200**（input_tokens 161422），
+      内联后模型可见 ~547 kB ≈ 13.7 万 token；`npm test` 51 例全绿。
 - [x] **0.3.3 适配 DSH `0.2.1-rc.1`**（2026-10-18，`0.2.0-rc.2` → `0.2.1-rc.1`）：
       新版 `standard` 新增 3 行（`time-context` / `tool-schedule` / `tool-plugin-market`）并改动
       `persona` / `planning` / `delegation`，本包的快照因此漂移（`preset.test` 报 20 !== 23）。

@@ -11,10 +11,13 @@ const TOOLS = [
   {
     name: 'open_binary',
     description: 'Open a native binary',
+    // Mirrors REA: the interesting schema uses `$defs` + `$ref`, which the
+    // bridge must inline before registration.
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string' } },
+      properties: { path: { $ref: '#/$defs/Path' } },
       required: ['path'],
+      $defs: { Path: { type: 'string', description: 'Absolute target path' } },
     },
   },
   {

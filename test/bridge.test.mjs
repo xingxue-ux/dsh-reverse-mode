@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { apply, parseConfig } from '../lib/index.js'
+import { apply, parseConfig, scrubChildEnv } from '../lib/index.js'
 import { ENTRY_TOOLS } from '../lib/catalog.js'
 import { McpStdioClient } from '../lib/mcp-stdio.js'
 
@@ -222,6 +222,31 @@ await test('parseConfig fills defaults and reports unknown fields/tiers', () => 
 // The MCP client on its own
 // ---------------------------------------------------------------------------
 
+await test('scrubChildEnv drops credentials and DSH_* but keeps engine wiring', () => {
+  const out = scrubChildEnv({
+    PATH: '/usr/bin',
+    JAVA_HOME: '/jdk',
+    GHIDRA_INSTALL_DIR: '/ghidra',
+    HOPPER_LAUNCHER_PATH: '/hopper',
+    REA_IDA_MCP_CONFIG: '/ida.json',
+    OPENCODE_GO_API_KEY: 'secret',
+    AWS_SECRET_ACCESS_KEY: 'secret',
+    GITHUB_TOKEN: 'secret',
+    SOME_PASSWORD: 'secret',
+    DSH_HOME: '/dsh',
+    DSH_PROFILE: 'web',
+  })
+  assert.deepEqual(Object.keys(out).sort(), [
+    'GHIDRA_INSTALL_DIR',
+    'HOPPER_LAUNCHER_PATH',
+    'JAVA_HOME',
+    'PATH',
+    'REA_IDA_MCP_CONFIG',
+  ])
+  assert.equal(out.GHIDRA_INSTALL_DIR, '/ghidra')
+  assert.deepEqual(scrubChildEnv(undefined), {})
+})
+
 await test('client pages tools/list, refuses server requests, reports stderr', async () => {
   const client = new McpStdioClient({
     command: process.execPath,
@@ -291,6 +316,17 @@ await test('apply registers exactly the curated tier and a scoped prompt section
     .sort()
   assert.deepEqual(names, expected, 'only entry-tier tools that REA advertises are registered')
   assert.ok(!names.includes('rea__list_procedures'), 'the navigate-tier tool stays out')
+
+  // The fake server's open_binary schema is `$defs` + `$ref`; the registered
+  // parameters must be self-contained, or pi-ai's non-strict projection leaves
+  // a dangling reference and the provider answers HTTP 400.
+  const openBinaryParameters = harness.registered.get('rea__open_binary').parameters
+  assert.equal(JSON.stringify(openBinaryParameters).includes('$ref'), false, 'no dangling $ref')
+  assert.equal(JSON.stringify(openBinaryParameters).includes('$defs'), false, '$defs is inlined away')
+  assert.deepEqual(openBinaryParameters.properties.path, {
+    type: 'string',
+    description: 'Absolute target path',
+  })
 
   assert.equal(harness.sections.length, 1)
   assert.equal(harness.sections[0].name, 'reverse-mode:policy')
