@@ -3,6 +3,61 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.5] - 2026-11-05
+
+适配 **DeepSeek Harness `0.2.2-rc.1` + Node v26**，并修复 Windows 上逆向模式起不来 REA 的问题
+（此前只在 WSL2 Linux 上验证过）。
+
+### Fixed
+
+- **DSH `0.2.2-rc.1` 预设漂移**：`standard` 又改了三处 —— `tool-fs` 增加
+  `config: { applyPatch: false }`、`delegation` 移除 `tool-subagent-list-agents`
+  并把 `tool-subagent` 的配置从 `modelSelectionSettings: true` 改为
+  `modelSelection: true` + `modelDiscovery: true`、`tool-plugin-manager` 的
+  `disabled` 从硬编码 `true` 改为 `!!js "!ctx.get('profileContext')"`。
+  其中 `@deepseek-ai/dsh-tool-subagent-control/list-agents` 子路径在 0.2.2 已被移除
+  （`ERR_PACKAGE_PATH_NOT_EXPORTED`），旧快照引用它会导致该行挂载失败，进而**整个
+  逆向模式预设被拒绝**——运行中的 harness 因此没有 REA 子进程。已按维护流程重新取
+  standard 的 `plugins` 原文 + 追加唯一 `rea-bridge` 行。
+- **Windows 上无法启动 REA**：Node 自 2024 年命令注入修复起拒绝直接
+  `spawn`/`execFile` 一个 `.cmd`/`.bat` 文件（`spawn EINVAL`），而 Windows 上的
+  `npx` 正是 `npx.cmd` —— `spawn('npx')` 报 `ENOENT`、`spawn('npx.cmd')` 抛
+  `EINVAL`，于是逆向模式会话只留下"没有 REA 工具"。新增 `lib/windows-spawn.js`：
+  `.exe` 与其它平台直接 spawn，其余命令经 `cmd.exe /d /s /c` 以 verbatim 命令行
+  启动（与 cross-spawn 同路，但保持零依赖）；`lib/mcp-stdio.js` 改用它，并在
+  `close()` 里用 `taskkill /T /F` 终止整棵进程树 —— `cmd.exe` 包装层不会被
+  `child.kill()` 带走，不这样收尾会留下 REA 子进程。
+- **环境自检在 Windows 上必然失败**：`lib/environment.js` 的 `execFile('npx.cmd')`
+  同样撞上 `EINVAL`，`npm run doctor` 永远退回本地探测。`run()` 现在复用
+  `windows-spawn.js` 的解析结果；`resolveRunner` 仍负责补 `.cmd`。
+
+### Fixed
+
+- **内置桥在 Windows 上无法启动 REA**：Node 自 2024 年命令注入修复起拒绝直接
+  `spawn`/`execFile` 一个 `.cmd`/`.bat` 文件（`spawn EINVAL`），而 Windows 上的
+  `npx` 正是 `npx.cmd` —— `spawn('npx')` 报 `ENOENT`、`spawn('npx.cmd')` 抛
+  `EINVAL`，于是逆向模式会话只留下"没有 REA 工具"。新增 `lib/windows-spawn.js`：
+  `.exe` 与其它平台直接 spawn，其余命令经 `cmd.exe /d /s /c` 以 verbatim 命令行
+  启动（与 cross-spawn 同路，但保持零依赖）；`lib/mcp-stdio.js` 改用它，并在
+  `close()` 里用 `taskkill /T /F` 终止整棵进程树 —— `cmd.exe` 包装层不会被
+  `child.kill()` 带走，不这样收尾会留下 REA 子进程。
+- **环境自检在 Windows 上必然失败**：`lib/environment.js` 的 `execFile('npx.cmd')`
+  同样撞上 `EINVAL`，`npm run doctor` 永远退回本地探测。`run()` 现在复用
+  `windows-spawn.js` 的解析结果；`resolveRunner` 仍负责补 `.cmd`。
+
+### Verified
+
+- Windows 11 + DSH `0.2.1-rc.5`（Electron Node 24.21.0）+ 系统 Node 25.9.0：
+  内置桥连真 REA 6.4.0 完成 `initialize` 并列出 **170** 个工具；
+  `npm run doctor` 与插件内的环境自检都走 `rea doctor`（`source: rea-doctor`）。
+- 未验证：Windows 上的 `npm test` —— `test/bridge.test.mjs` 的 8 个用例用
+  `#!/bin/sh` 伪造 `npx`，属测试自身的 POSIX 假设，与本次修复的运行路径无关；
+  `&&` 链因此没跑到后面的文件。
+- Linux + DSH `0.2.2-rc.1` + Node v26.13.0 + cordis 4.1.0：六套件 **51 例全绿**；
+  用 v26 的 cordis 真实挂载插件（`bridge: builtin`）注册 9 个 `rea__*` 工具、
+  dispose 后归零；`npm run test:live` 经官方桥连真 REA 注册 170 个工具。
+- 预设快照与 0.2.2 的 `standard` 逐行一致（22 行 + 唯一 `rea-bridge`）。
+
 ## [0.3.4] - 2026-10-18
 
 修复「逆向模式」在 **opencode-go `deepseek-flash-1017`** 等非 strict-tool 模型上的

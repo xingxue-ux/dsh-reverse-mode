@@ -4,7 +4,7 @@
 判断改动是否生效、在真机上验证、并决定后续路线。
 
 - 仓库：`dsh-reverse-mode`（开源，MIT，见 `NOTICE.md` 溯源）
-- 版本：`0.3.4`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 版本：`0.3.5`，变更记录见 [CHANGELOG.md](CHANGELOG.md)
 - 唯一的现实使用场景：**DeepSeek Harness（DSH）** 的 `web` profile，预设「逆向模式」
 
 ---
@@ -385,6 +385,17 @@ cordis-mount 3（其中官方桥真实挂载 1 例，解析不到时自动 skip�
       真机验证注册 170 个 `mcp__rea__*` 工具、dispose 后无残留；`npm test` 35 例全绿。
 - [x] **文档成本口径更正**：README / HANDOFF / CHANGELOG 里 `entry`/`all` 的 token 数改成
       模型可见口径（~2.8k / ~108k），并更正 `NAVIGATE_TOOLS` 30、策展并集 56。
+- [x] **0.3.5 适配 DSH `0.2.2-rc.1` + Node v26**（2026-11-05）：
+      `standard` 再次漂移（`tool-fs` 加 `applyPatch: false`；`delegation` 移除
+      `tool-subagent-list-agents` 并改 `tool-subagent` 的 `modelSelection`/`modelDiscovery`；
+      `tool-plugin-manager` 的 `disabled` 改为 `!!js "!ctx.get('profileContext')"`）。
+      其中 `@deepseek-ai/dsh-tool-subagent-control/list-agents` 子路径在 0.2.2 已删除
+      （`ERR_PACKAGE_PATH_NOT_EXPORTED`），旧快照引用它会让该行挂载失败 → **整个预设被拒绝**，
+      运行中的 harness 因此没有 REA 子进程。已重新快照。
+      同时合入 Windows 支持（`lib/windows-spawn.js`：`.cmd` 经 `cmd.exe /d /s /c` 启动、
+      `taskkill /T /F` 收尾；`environment.js` 的 `run()` 复用同一解析）。
+      验证：51 例全绿；v26 cordis 真实挂载 9 工具；`test:live` 170 工具。
+      ⚠ 预设子插件列表变化**不随 HMR 生效**，必须重启 harness。
 - [x] **0.3.4 修复非 strict-tool 模型的 400**（2026-10-18）：
       `deepseek-flash-1017`（opencode-go）在逆向模式报 `400 {"model":"deepseek-flash"}`，
       其它模式正常。根因不在预设：pi-ai 对不声明 strict tool sampling 的模型把工具 schema
