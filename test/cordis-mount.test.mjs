@@ -126,7 +126,9 @@ await test('activation waits for the injected services, then starts REA', async 
   assert.ok(!registered.has('rea__list_procedures'), 'the navigate tier stays out')
 
   const overview = registered.get('rea__binary_overview')
-  const result = await overview.execute({}, {})
+  // The ToolRuntime always supplies an exec signal; the built-in bridge tolerates
+  // its absence, but passing one keeps this call shaped like a real invocation.
+  const result = await overview.execute({}, { signal: new AbortController().signal })
   assert.equal(overview.output.render({}, result)[0].text, 'fake:binary_overview:{}')
 
   await fiber.dispose()
@@ -179,9 +181,10 @@ if (official === null) {
       'the official bridge has no allow-list, so navigate tools are present too',
     )
 
-    // A round trip through the harness bridge (not our own client).
+    // A round trip through the harness bridge (not our own client). The harness
+    // bridge reads `exec.signal` directly, so pass one exactly as ToolRuntime does.
     const overview = registered.get('mcp__rea__binary_overview')
-    const result = await overview.execute({}, {})
+    const result = await overview.execute({}, { signal: new AbortController().signal })
     const rendered = JSON.stringify(overview.output?.render?.({}, result) ?? result)
     assert.match(rendered, /fake:binary_overview:/, rendered)
 

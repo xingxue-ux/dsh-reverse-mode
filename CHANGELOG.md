@@ -3,6 +3,37 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.6] - 2026-11-16
+
+适配 **DeepSeek Harness `0.2.2-rc.3`**（原为 `0.2.2-rc.1`）。
+
+### Fixed
+
+- **预设快照漂移**：`standard` 又改了三处 —— 新增 `tool-office`
+  （`@deepseek-ai/dsh-tool-office`）、`skill-filesystem` 增加 `customSkillDirs`
+  （指向 `dsh-agent-preset` 自带的 skills 目录，`dsh-doc` 技能就在那里）、
+  `delegation` 里的 `tool-subagent-control` 增加 `config: { interrupt: false }`。
+  已按维护流程重新取 standard 的 `plugins` 原文 + 追加唯一 `rea-bridge` 行
+  （23 + 1 = 24 行）。
+- **`cordis-mount` 的官方桥用例**：新版 `@deepseek-ai/dsh-mcp-client` 在工具调用里
+  直接读取 `execution.signal`（无 `?.` 兜底），而测试用 `execute({}, {})` 调用，
+  于是 `AbortSignal.any([undefined, …])` 抛
+  `The "signals[0]" argument must be an instance of AbortSignal`。测试改为传
+  `{ signal: new AbortController().signal }`，与真实 ToolRuntime 的调用形态一致。
+  插件本身无需改动：内置桥用 `exec?.signal` 容忍缺省。
+
+### Verified
+
+- `npm test` **51 例全绿**（bridge 11 + schema 9 + environment 11 + official-bridge 13 +
+  preset 4 + cordis-mount 3），DSH `0.2.2-rc.3` + cordis 4.1.0。
+- 官方桥解析到 `@deepseek-ai/dsh-mcp-client@0.2.2-rc.3`，`inject` 仍为 `["tools"]`，
+  `name: mcp-client`，`Config` 仍导出。
+- 升级指南 `docs/upgrade-guide/` 的 `v0.2.2-rc.1` 段（rc.1 → rc.3 唯一相邻目录）逐项核对：
+  账号通知、Forge、CUA、终端、Web 搜索、`BundleInfo.update`、`Session.append` 重载、
+  subagent 中断默认值、`dsh-doc` 技能替换 —— 均不涉及本插件使用的
+  `ctx.tools` / `ctx.systemPrompt` / `ctx.effect` / `ctx.plugin` / MCP 桥 Config surface，
+  无需迁移。
+
 ## [0.3.5] - 2026-11-05
 
 适配 **DeepSeek Harness `0.2.2-rc.1` + Node v26**，并修复 Windows 上逆向模式起不来 REA 的问题
